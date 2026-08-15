@@ -1,0 +1,93 @@
+# Architecture
+
+This document explains how the project is put together and what each module is responsible for.
+Setup and run instructions are in the [README](README.md).
+
+## Pipeline
+
+```
+cli.py
+  -> data.py        # read in users, or make them up
+  -> constraints.py # mark the pairs that are not allowed, building H
+  -> features.py    # measure each allowed pair on each thing being compared
+  -> scoring.py     # turn those measurements into one score per pair, building S
+  -> matcher.py     # decide who is matched with who
+  -> llm.py         # write the message explaining the match (optional)
+  -> output         # the list of matches, on screen and as JSON
+```
+
+`constraints.py` runs before `scoring.py` so that only the pairs that are allowed have to be scored. 
+
+A banned pair cannot be matched whatever it
+scores so working out its score is wasted.
+
+Two tables are shared between the modules:
+- `S`, the score for every pair
+- `H`, whether the pair is allowed at all
+
+## Phase 1
+
+`models.py`: describes what a user looks like, covering features such as `id, major, degree, year, age, MBTI, languages, gender, proximity, timetable, interests, preferences, mode`, etc.
+- `mode` is the kind of connection the user is after, such as lunch mate, study buddy, long term friend group or campus couple
+- `proximity` is how far the user lives from the city campus
+- `timetable` is a typical week of free and busy slots, so shared free time can be worked out
+- will not be modified once written and confirmed, since every other module imports it
+
+`data.py`: reads users from a CSV file, and makes up a group of users for testing.
+- makes up user data, for example 100 users with a sensible spread of values
+- may also use the real details of the keb playground participants for a demo
+- returns a list of `User` objects
+- needed early, because everything else runs against that list
+
+`features.py`: measures how alike two users are, one feature at a time.
+- each measurement is a function that takes two users and returns a number from 0 to 1 (0% to 100%)
+- features worth measuring include shared free time, same (or similar) major, shared interests, languages and how far apart they live
+- only measures (makes no decisions) and does not know that matching exists
+- returns the name of each measurement and its result
+
+`constraints.py`: decides which pairs are not allowed to be matched at all.
+- work out what rules out a pair, such as no shared free time, different modes or a self matching
+- returns `H`, the table saying which pairs are allowed
+- kept apart from scoring because these rules cannot be outweighed, a banned pair stays banned even at a score of 1.0
+
+`scoring.py`: turns the measurements into one score, `S`.
+- give each mode its own set of weights, so that lunch mate counts shared free time more heavily, while study buddy counts major and degree more heavily
+- return both the final score and the separate measurements behind it, because `llm.py` needs those measurements to explain a match
+- also work out how good a whole run was, using the average score, the score of the worst off user and how many users were left unmatched
+
+`matcher.py`: three ways of matching.
+1. greedy pairing. Take the best allowed pair still available, again and again. This gives the highest total score.
+2. Gale-Shapley matching, using lists of who each user would prefer, sorted by score. The total can be lower but guarantees that no unstable matching exists.
+3. building groups from the bottom up. Start with everyone alone, then join the two closest groups until a stopping point is reached, such as a limit of n users per friend group. When judging a join, use the worst pair in the group rather than the average, so nobody ends up in a group with someone they do not get on with.
+
+- 1 and 2 are then compared, to see which works better
+- 3 is separate, and is used for friend group mode
+- all three read `S` and `H` only, and know nothing about users
+
+`llm.py`: asks an LLM to write the message shown to a matched pair.
+- write a system prompt that asks for a match message giving a reason and a suggestion
+- connect to the API
+- send the system prompt along with the details of the match (both users, matching score and feature measurements)
+- check response quality and format
+- output the message
+- runs after matching, never affects who gets matched
+- put it behind an `--explain` flag
+- save the replies to JSON (a fallback), so a failed API call cannot break the live demo
+
+`cli.py`: runs the whole application from the command line and reads the arguments.
+- reading in the input file
+- choosing the mode
+- choosing the algorithm
+- write the output (display the matching table, save as JSON for phase 2)
+
+## Phase 2
+
+Backend: a FastAPI app with two endpoints.
+1. take in a user profile
+2. send back a match
+- wraps the same pipeline and adds no other feature to it
+
+Frontend: a plain HTML page.
+1. sign up form
+2. match result
+- no login for demo
