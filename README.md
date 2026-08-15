@@ -13,7 +13,9 @@ cli.py
   -> output         match table + JSON
 ```
 
-Two shared tables hold it together: S, the score for every pair, and H, whether the pair is allowed at all. Everything before them is measurement, everything after is decision making. That split lets people work in parallel.
+There are two shared tables: 
+- S, the score for every pair
+- H, whether the pair is allowed at all
 
 ## Phase 1 Architecture
 
