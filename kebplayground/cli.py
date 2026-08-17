@@ -6,6 +6,11 @@ it belongs to.
 """
 
 import argparse
+import json
+from pathlib import Path
+from typing import cast
+
+from . import constraints, data, llm, matcher, scoring
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -22,7 +27,16 @@ def build_parser() -> argparse.ArgumentParser:
       --explain        also ask the LLM to write the match messages
       --output PATH    where to write the results as JSON
     """
-    raise NotImplementedError
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--input")
+    parser.add_argument("--count", type=int, default=100)
+    parser.add_argument("--seed", type=int)
+    parser.add_argument("--mode", required=True, choices=list(scoring.WEIGHTS))
+    parser.add_argument("--algo", required=True, choices=(list(matcher.ALGORITHMS) + ["cluster"]))
+    parser.add_argument("--explain", action="store_true")
+    parser.add_argument("--output")
+
+    return parser
 
 
 def run(args: argparse.Namespace) -> dict[str, object]:
@@ -34,17 +48,50 @@ def run(args: argparse.Namespace) -> dict[str, object]:
 
     This is the same shape the Phase 2 API sends back. The FastAPI layer
     calls this function instead of repeating the steps itself.
-
-    Steps to implement, in this order:
-    1. read the users from --input, or make them up
-    2. build H with constraints.build_allow_table
-    3. build S with scoring.build_score_table, for the chosen mode, passing
-       in H so that only the allowed pairs are scored
-    4. run the chosen algorithm from matcher over S and H
-    5. judge the result with scoring.evaluate
-    6. when --explain was given, call llm.explain for each matched pair
     """
-    raise NotImplementedError
+    if args.mode is None:
+        raise ValueError("--mode is required")
+    if args.algo is None:
+        raise ValueError("--algo is required")
+
+    # read users from csv or generate test users
+    if args.input is None:
+        users = data.generate_users(args.count, args.seed)
+    else:
+        users = data.load_users(Path(args.input))
+
+    # build H
+    H = constraints.build_allow_table(users)
+
+    # build S for the chosen mode
+    S = scoring.build_score_table(users, args.mode, H)
+
+    # run the chosen algorithm
+    if args.algo == "cluster":
+        # no evaluation for cluster matches
+        return {"algo": args.algo, "matches": matcher.cluster(S, H)}
+
+    matches = matcher.ALGORITHMS[args.algo](S, H)
+
+    # evaluate the result
+    evaluation = scoring.evaluate(users, matches, S, H)
+
+    # when --explain was given, call llm.explain for each matched pair
+    user_map = {user.id: user for user in users}
+    records = []
+
+    for a, b in matches:
+        entry = {"a": a, "b": b, "score": S[(a, b)]}
+        if args.explain:
+            _, breakdown = scoring.score_pair(user_map[a], user_map[b], args.mode)
+            entry["message"] = llm.explain(
+                user_map[a], user_map[b], S[(a, b)], breakdown
+            )
+        records.append(entry)
+
+    result = {"algo": args.algo, "matches": records}
+    result.update(evaluation)
+    return result
 
 
 def print_table(result: dict[str, object]) -> None:
@@ -53,15 +100,39 @@ def print_table(result: dict[str, object]) -> None:
     One line per match, showing both user ids, the score, and the message if
     one was written.
     """
-    raise NotImplementedError
+    if result["algo"] == "cluster":
+        for group in cast(list[list[str]], result["matches"]):
+            print(" ".join(group))
+        return
+
+    for entry in cast("list[dict[str, object]]", result["matches"]):
+        line = f"{entry['a']} {entry['b']} {round(cast(float, entry['score']), 2)}"
+        message = entry.get("message")
+        if message:
+            line += f" {message}"
+        print(line)
 
 
 def main(argv: list[str] | None = None) -> int:
     """Read the arguments, do the run, print it, and save it.
 
     Returns the exit code for the process, 0 when everything worked.
+
+    main(argv)
+      ├─ build_parser().parse_args(argv) → args
+      ├─ run(args) → result
+      ├─ print_table(result)
+      └─ (write result to args.output, if given)
     """
-    raise NotImplementedError
+    args = build_parser().parse_args(argv)
+    result = run(args)
+    print_table(result)
+
+    if args.output:
+        with open(args.output, "w") as file:
+            json.dump(result, file, indent=2)
+
+    return 0
 
 
 if __name__ == "__main__":
