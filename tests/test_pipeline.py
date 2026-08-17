@@ -14,9 +14,11 @@ between 0 and 1 and moves in the right direction.
 """
 
 import argparse
+import tempfile
 import unittest
+from pathlib import Path
 
-from kebplayground import constraints, features, llm, matcher, scoring
+from kebplayground import constraints, data, features, llm, matcher, scoring
 from kebplayground.cli import build_parser
 from kebplayground.models import User, pair_key
 
@@ -76,6 +78,34 @@ class TestModels(unittest.TestCase):
 
     def test_pair_key_accepts_bare_ids(self):
         self.assertEqual(pair_key("b", "a"), ("a", "b"))
+
+
+class TestData(unittest.TestCase):
+    def test_generate_users_makes_the_number_asked_for(self):
+        self.assertEqual(len(data.generate_users(10, seed=1)), 10)
+
+    def test_the_same_seed_gives_the_same_users(self):
+        # Without this, two runs of the same algorithm cannot be compared.
+        self.assertEqual(
+            data.generate_users(10, seed=1), data.generate_users(10, seed=1)
+        )
+
+    def test_saved_users_can_be_read_back(self):
+        # The two functions are the only pair that has to agree on the CSV
+        # format, so they are tested together.
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "users.csv"
+            data.save_users(USERS, path)
+            self.assertEqual(data.load_users(path), USERS)
+
+    def test_a_missing_column_is_reported(self):
+        # The error names the column, rather than the run failing later in
+        # a module that has nothing to do with the file.
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "users.csv"
+            path.write_text("id,major\na,CS\n")
+            with self.assertRaises((KeyError, ValueError)):
+                data.load_users(path)
 
 
 class TestFeatures(unittest.TestCase):
