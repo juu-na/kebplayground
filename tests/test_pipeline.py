@@ -103,8 +103,12 @@ class TestData(unittest.TestCase):
         # a module that has nothing to do with the file.
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "users.csv"
-            path.write_text("id,major\na,CS\n")
-            with self.assertRaises((KeyError, ValueError)):
+            # Omit exactly one required column so the failure is deterministic.
+            path.write_text(
+                "id,major,year,age,mbti,languages,gender,proximity_km,free_slots,interests,mode\n"
+                "a,CS,2,20,INTJ,en,f,2.0,MON-09,chess,study buddy\n"
+            )
+            with self.assertRaisesRegex((KeyError, ValueError), r"\bdegree\b"):
                 data.load_users(path)
 
 
