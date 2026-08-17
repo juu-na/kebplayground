@@ -10,7 +10,7 @@ import json
 from pathlib import Path
 from typing import cast
 
-from kebplayground import constraints, data, llm, matcher, scoring
+from . import constraints, data, llm, matcher, scoring
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -31,8 +31,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--input")
     parser.add_argument("--count", type=int, default=100)
     parser.add_argument("--seed", type=int)
-    parser.add_argument("--mode", choices=list(scoring.WEIGHTS))
-    parser.add_argument("--algo", choices=(list(matcher.ALGORITHMS) + ["cluster"]))
+    parser.add_argument("--mode", required=True, choices=list(scoring.WEIGHTS))
+    parser.add_argument("--algo", required=True, choices=(list(matcher.ALGORITHMS) + ["cluster"]))
     parser.add_argument("--explain", action="store_true")
     parser.add_argument("--output")
 
@@ -101,7 +101,7 @@ def print_table(result: dict[str, object]) -> None:
     one was written.
     """
     if result["algo"] == "cluster":
-        for group in cast("list[list[str]]", result["matches"]):
+        for group in cast(list[list[str]], result["matches"]):
             print(" ".join(group))
         return
 
