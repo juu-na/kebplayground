@@ -31,10 +31,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--input")
     parser.add_argument("--count", type=int, default=100)
     parser.add_argument("--seed", type=int)
-    parser.add_argument("--mode", choices=list(scoring.WEIGHTS), required=True)
-    parser.add_argument(
-        "--algo", choices=(list(matcher.ALGORITHMS) + ["cluster"]), required=True
-    )
+    parser.add_argument("--mode", choices=list(scoring.WEIGHTS))
+    parser.add_argument("--algo", choices=(list(matcher.ALGORITHMS) + ["cluster"]))
     parser.add_argument("--explain", action="store_true")
     parser.add_argument("--output")
 
@@ -51,6 +49,11 @@ def run(args: argparse.Namespace) -> dict[str, object]:
     This is the same shape the Phase 2 API sends back. The FastAPI layer
     calls this function instead of repeating the steps itself.
     """
+    if args.mode is None:
+        raise ValueError("--mode is required")
+    if args.algo is None:
+        raise ValueError("--algo is required")
+
     # read users from csv or generate test users
     if args.input is None:
         users = data.generate_users(args.count, args.seed)
