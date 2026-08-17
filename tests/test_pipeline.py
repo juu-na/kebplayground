@@ -341,14 +341,14 @@ class TestCLI(unittest.TestCase):
         self.assertEqual(args.algo, "greedy")
 
     def test_seed_and_count_come_back_as_numbers(self):
-        args = build_parser().parse_args(["--count", "50", "--seed", "7"])
+        args = build_parser().parse_args(["--mode", "study buddy", "--algo", "greedy", "--count", "50", "--seed", "7"])
         self.assertEqual(args.count, 50)
         self.assertEqual(args.seed, 7)
 
     def test_explain_is_off_unless_asked_for(self):
         # The LLM call has to be asked for, so a demo cannot break on a
         # failed request.
-        self.assertFalse(build_parser().parse_args([]).explain)
+        self.assertFalse(build_parser().parse_args(["--mode", "study buddy", "--algo", "greedy"]).explain)
 
 
 if __name__ == "__main__":
