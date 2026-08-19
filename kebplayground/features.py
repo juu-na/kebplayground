@@ -58,6 +58,8 @@ def major_similarity(a: User, b: User) -> float:
     else:
         a_score = FACULTY_TECHINESS.get(a.faculty)
         b_score = FACULTY_TECHINESS.get(b.faculty)
+        if a_score is None or b_score is None:
+            raise ValueError
         score += FACULTY_WEIGHT *(1-(abs(a_score - b_score)))
 
     if a.major == b.major:
