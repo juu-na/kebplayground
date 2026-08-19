@@ -35,7 +35,7 @@ class User:
 
     id: str
     major: str
-    degree: str
+    faculty: str
     year: int
     age: int
     mbti: str

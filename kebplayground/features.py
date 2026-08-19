@@ -13,7 +13,6 @@ it possible for scoring.py to weigh one measurement against another.
 
 from .models import User
 
-
 def timetable_overlap(a: User, b: User) -> float:
     """How much of their free time the two users share.
 
@@ -23,7 +22,25 @@ def timetable_overlap(a: User, b: User) -> float:
     If neither user has any free slot, return 0.0 instead of dividing by
     zero.
     """
-    raise NotImplementedError
+    shared_free = a.free_slots & b.free_slots
+    total_free = a.free_slots | b.free_slots
+    if not shared_free:
+        return 0.0
+    return len(shared_free)/len(total_free)
+
+
+FACULTY_WEIGHT = 0.8
+MAJOR_WEIGHT = 0.2
+
+#이과 = 1, 문과 = 0 ??
+FACULTY_TECHINESS = {
+    "Engineering and Design": 1.0,
+    "Science": 0.8,   
+    "Medical and Health Sciences": 0.6,
+    "Business": 0.4,
+    "Law": 0.2,   
+    "Arts and Education": 0.0,
+}
 
 
 def major_similarity(a: User, b: User) -> float:
@@ -34,7 +51,19 @@ def major_similarity(a: User, b: User) -> float:
     Returning 0.0 for everything else is a fine first version. Giving a
     middle value to two different majors in the same faculty is optional.
     """
-    raise NotImplementedError
+    score = 0.0
+
+    if a.faculty == b.faculty:
+        score += FACULTY_WEIGHT
+    else:
+        a_score = FACULTY_TECHINESS.get(a.faculty)
+        b_score = FACULTY_TECHINESS.get(b.faculty)
+        score += FACULTY_WEIGHT *(1-(abs(a_score - b_score)))
+
+    if a.major == b.major:
+        score += MAJOR_WEIGHT
+
+    return score
 
 
 def interest_similarity(a: User, b: User) -> float:
@@ -44,7 +73,14 @@ def interest_similarity(a: User, b: User) -> float:
     count of interests either of them lists. This is the same sum as
     timetable_overlap.
     """
-    raise NotImplementedError
+
+    shared_interest = a.interests & b.interests
+    num_shared_interest = len(shared_interest)
+    total_interest = a.interests | b.interests
+    num_total_interest = len(total_interest)
+    if not num_shared_interest:
+        return 0.0
+    return num_shared_interest/num_total_interest
 
 
 def language_similarity(a: User, b: User) -> float:
@@ -54,7 +90,17 @@ def language_similarity(a: User, b: User) -> float:
     three in common is not three times better. Returning either 1.0 or 0.0
     is reasonable here.
     """
-    raise NotImplementedError
+    common_language = len(a.languages & b.languages)
+    
+    if (len(a.languages) == 1 or len(b.languages) == 1) and common_language == 1:
+        return 1.0
+
+    if common_language == 1:
+        return 0.9
+    elif  common_language > 1:
+        return 1.0
+    else:
+        return 0.0
 
 
 def proximity_similarity(a: User, b: User) -> float:
@@ -64,10 +110,15 @@ def proximity_similarity(a: User, b: User) -> float:
     ignoring the sign, then turn it into a number from 0.0 to 1.0 where a
     smaller difference gives a higher result.
 
-    This needs a cut-off distance, past which the result is simply 0.0.
+    This needs a cut-off distance, past which the sult is simply 0.0.
     Choosing that distance is part of the task.
     """
-    raise NotImplementedError
+    difference = abs(a.proximity_km - b.proximity_km)
+    if difference > 25.0:
+        return 0.0
+    else: 
+        score = (25 - difference)/25
+        return score
 
 
 def age_similarity(a: User, b: User) -> float:
@@ -76,7 +127,12 @@ def age_similarity(a: User, b: User) -> float:
     To implement: the same approach as proximity_similarity, using age
     instead of distance.
     """
-    raise NotImplementedError
+    difference = abs(a.age - b.age)
+    if difference > 10:
+        return 0.0
+    else:
+        score = (10 - difference)/10
+        return score
 
 
 # Every measurement, listed by the name used in the score breakdown and in
@@ -102,4 +158,8 @@ def measure(a: User, b: User) -> dict[str, float]:
     To implement: call each function in FEATURES and collect the answers
     into one dict.
     """
-    raise NotImplementedError
+    output = {}
+
+    for features, fn in FEATURES.items():
+        output[features] = fn(a, b)
+    return output

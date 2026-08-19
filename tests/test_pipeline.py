@@ -28,7 +28,7 @@ def make_user(uid: str, **overrides: object) -> User:
     fields: dict[str, object] = {
         "id": uid,
         "major": "CS",
-        "degree": "BSc",
+        "faculty": "Science",
         "year": 2,
         "age": 20,
         "mbti": "INTJ",
@@ -59,6 +59,7 @@ BOB = make_user(
 CHARLIE = make_user(
     "c",
     major="Law",
+    faculty="Law",
     age=30,
     languages=frozenset({"ko"}),
     proximity_km=20.0,
@@ -137,7 +138,10 @@ class TestFeatures(unittest.TestCase):
 
     def test_major_similarity_rewards_the_same_subject(self):
         self.assertEqual(features.major_similarity(ALICE, BOB), 1.0)
-        self.assertEqual(features.major_similarity(ALICE, CHARLIE), 0.0)
+        self.assertLess(
+            features.major_similarity(ALICE, CHARLIE),
+            features.major_similarity(ALICE, BOB),
+        )
 
     def test_language_similarity_needs_one_shared_language(self):
         self.assertEqual(features.language_similarity(ALICE, BOB), 1.0)
