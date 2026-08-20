@@ -35,7 +35,7 @@ class User:
 
     id: str
     major: str
-    degree: str
+    faculty: str
     year: int
     age: int
     mbti: str
@@ -63,4 +63,12 @@ def pair_key(a: User | str, b: User | str) -> Pair:
     To implement: get the id out of each argument, then return the two ids
     as a tuple, smaller id first.
     """
-    raise NotImplementedError
+    if isinstance(a, User):
+        a = a.id
+    if isinstance(b, User):
+        b = b.id 
+    
+    if a < b:
+        return(a, b)
+    else:
+        return(b, a)
