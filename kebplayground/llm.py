@@ -8,24 +8,45 @@ same result.
 It only runs when the --explain flag is given and the answers are saved to a
 JSON file. This is to prevent a failed API call breaking a live demo.
 """
+import os
+from dotenv import load_dotenv
+
+load_dotenv()  # loads .env into the environment
+
+api_key = os.getenv("GEMINI_API_KEY")
+
 
 from pathlib import Path
 
 from .models import User
 
-# Which model to call. No provider has been chosen yet, so this is left
-# empty on purpose.
-# Once one is picked, the package to install and the name of the environment
-# variable holding the API key follow from that choice.
-MODEL = ""
+MODEL = "gemini-2.5-flash"
 
 SYSTEM_PROMPT = """\
-Placeholder.
+You write a short message shown to two people who have just been matched by
+an automated matching system.
 
-Write the instructions that turn the details of a match into a short message
-for the two users. Cover what the model is being asked to do, what tone to
-use, how long the message may be, and the rule that the only reasons it may
-give are the ones in the measurements it was handed.
+You will be given both users' profiles, the score they were matched with,
+and a breakdown of the separate measurements that made up that score (for
+example timetable overlap, shared major, shared interests). The matching
+decision has already been made. Your only job is to explain it in plain
+language and give the two of them a reason to say hello.
+
+Write one message, addressed to both of them together, that:
+- points to one or two specific reasons they were matched
+- suggests one simple, low-effort first step they could take
+
+Rules:
+- Only use reasons that appear in the measurements you were given. Do not
+  invent a shared trait, guess at something not in the data, or mention a
+  measurement you were not handed.
+- Keep the tone warm and casual, like a friend making an introduction, not
+  corporate or robotic.
+- If the user's purpose is to seek a romantic partner, write the message in
+  a flirty tone
+- Two to three sentences. Stay under 300 characters.
+- Output only the message itself. No greeting, no signature, no labels like
+  "Message:".
 """
 
 
