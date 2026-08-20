@@ -109,7 +109,7 @@ class TestData(unittest.TestCase):
                 "id,major,year,age,mbti,languages,gender,proximity_km,free_slots,interests,mode\n"
                 "a,CS,2,20,INTJ,en,f,2.0,MON-09,chess,study buddy\n"
             )
-            with self.assertRaisesRegex((KeyError, ValueError), r"\bdegree\b"):
+            with self.assertRaisesRegex((KeyError, ValueError), r"\bfaculty\b"):
                 data.load_users(path)
 
 
