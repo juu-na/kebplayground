@@ -27,7 +27,7 @@ Two tables are shared between the modules:
 
 ## Phase 1
 
-`models.py`: describes what a user looks like, covering features such as `id, major, degree, year, age, MBTI, languages, gender, proximity, timetable, interests, preferences, mode`, etc.
+`models.py`: describes what a user looks like, covering features such as `id, major, faculty, year, age, MBTI, languages, gender, proximity, timetable, interests, preferences, mode`, etc.
 - `mode` is the kind of connection the user is after, such as lunch mate, study buddy, long term friend group or campus couple
 - `proximity` is how far the user lives from the city campus
 - `timetable` is a typical week of free and busy slots, so shared free time can be worked out
@@ -51,7 +51,7 @@ Two tables are shared between the modules:
 - kept apart from scoring because these rules cannot be outweighed, a banned pair stays banned even at a score of 1.0
 
 `scoring.py`: turns the measurements into one score, `S`.
-- give each mode its own set of weights, so that lunch mate counts shared free time more heavily, while study buddy counts major and degree more heavily
+- give each mode its own set of weights, so that lunch mate counts shared free time more heavily, while study buddy counts major and faculty more heavily
 - return both the final score and the separate measurements behind it, because `llm.py` needs those measurements to explain a match
 - also work out how good a whole run was, using the average score, the score of the worst off user and how many users were left unmatched
 
