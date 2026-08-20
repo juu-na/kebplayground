@@ -8,6 +8,7 @@ same result.
 It only runs when the --explain flag is given and the answers are saved to a
 JSON file. This is to prevent a failed API call breaking a live demo.
 """
+import json
 import os
 from dotenv import load_dotenv
 
@@ -49,6 +50,13 @@ Rules:
   "Message:".
 """
 
+def describe(user: User) -> str:
+    return (
+        f"User {user.id}: {user.major} {user.degree}, year {user.year}, "
+        f"age {user.age}, languages {sorted(user.languages)}, "
+        f"interests {sorted(user.interests)}, looking for a {user.mode}"
+    )
+
 
 def build_prompt(
     a: User,
@@ -67,7 +75,21 @@ def build_prompt(
     something definite to name as the reason, rather than leaving it to
     guess.
     """
-    raise NotImplementedError
+    usera = describe(a)
+    userb = describe(b)
+
+    ranked = sorted(breakdown.items(), key=lambda item: item[1], reverse=True)
+    measurement_lines = "\n".join(f"  - {name}: {value:.2f}" for name, value in ranked)
+    top_name, top_value = ranked[0]
+
+    return (
+        f"{usera}\n"
+        f"{userb}\n\n"
+        f"Match score: {score:.2f}\n"
+        f"Measurements:\n{measurement_lines}\n\n"
+        f"The highest-scoring measurement is {top_name} ({top_value:.2f}). "
+        f"Write the match message now."
+    )
 
 
 def explain(
@@ -91,7 +113,38 @@ def explain(
     measurements rather than raising an error, so the rest of the run still
     finishes.
     """
-    raise NotImplementedError
+    key = "|".join(sorted((a.id, b.id)))
+
+    saved: dict[str, str] = {}
+    if cache is not None and cache.exists():
+        saved = json.loads(cache.read_text())
+        if key in saved:
+            return saved[key]
+
+    try:
+        from google import genai
+
+        client = genai.Client(api_key=api_key)
+        response = client.models.generate_content(
+            model=MODEL,
+            contents=build_prompt(a, b, score, breakdown),
+            config={"system_instruction": SYSTEM_PROMPT},
+        )
+        message = (response.text or "").strip()
+        if not verify(message, breakdown):
+            raise ValueError("model reply failed verification")
+    except Exception:
+        ranked = sorted(breakdown.items(), key=lambda item: item[1], reverse=True)
+        top_names = [name for name, value in ranked if value > 0][:2]
+        if top_names:
+            return f"You two were matched because of {' and '.join(top_names)}. Say hi!"
+        return "You two were matched. Say hi and see what you have in common."
+
+    if cache is not None:
+        saved[key] = message
+        cache.write_text(json.dumps(saved, indent=2))
+
+    return message
 
 
 def verify(message: str, breakdown: dict[str, float]) -> bool:
@@ -104,4 +157,26 @@ def verify(message: str, breakdown: dict[str, float]) -> bool:
     limit, or one that gives a reason which is not in the measurements it
     was handed.
     """
-    raise NotImplementedError
+    if not message.strip():
+        return False
+
+    if len(message) > 300:
+        return False
+
+    lowered = message.lower()
+    all_reasons = {
+        "timetable": ["free time", "schedule", "timetable", "free hour"],
+        "proximity": ["live close", "nearby", "distance", "commute"],
+        "interests": ["interest", "hobby", "hobbies"],
+        "languages": ["language"],
+        "major": ["major", "subject", "study the same", "both study"],
+        "age": ["age", "years old"],
+    }
+    for name, keywords in all_reasons.items():
+        if name in breakdown:
+            continue
+        for keyword in keywords:
+            if keyword in lowered:
+                return False
+
+    return True
