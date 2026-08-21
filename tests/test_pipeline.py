@@ -18,7 +18,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from kebplayground import constraints, data, features, llm, matcher, scoring
+from kebplayground import constraints, data, features, llm, matcher, scoring, vocabulary
 from kebplayground.cli import build_parser
 from kebplayground.models import User, pair_key
 
@@ -68,6 +68,108 @@ CHARLIE = make_user(
     mode="lunch mate",
 )
 USERS = [ALICE, BOB, CHARLIE]
+
+
+def one_of(registered: frozenset) -> frozenset:
+    """One value out of a registry, so a fixture does not go stale when the
+    registry is edited."""
+    return frozenset(sorted(registered)[:1])
+
+
+# One preference of every kind, used to check that each key is accepted and
+# that no key has been added to the schema without a test covering it.
+EVERY_PREFERENCE: dict[str, object] = {
+    "genders": one_of(vocabulary.GENDERS),
+    "age": (19, 24),
+    "majors": one_of(vocabulary.ALL_MAJORS),
+    "faculties": one_of(vocabulary.FACULTIES),
+    "years": one_of(vocabulary.YEARS),
+    "mbti": one_of(vocabulary.MBTIS),
+    "languages": one_of(vocabulary.LANGUAGES),
+    "interests": one_of(vocabulary.INTERESTS),
+    "same_area_only": True,
+}
+
+
+class TestVocabulary(unittest.TestCase):
+    def test_every_major_belongs_to_one_faculty(self):
+        # Two faculties claiming the same major would make faculty_of depend
+        # on the order the dict happens to be written in.
+        seen: list[str] = []
+        for majors in vocabulary.MAJORS.values():
+            seen.extend(majors)
+        self.assertEqual(sorted(seen), sorted(set(seen)))
+
+    def test_all_majors_is_every_group_together(self):
+        self.assertEqual(len(vocabulary.ALL_MAJORS), sum(map(len, vocabulary.MAJORS.values())))
+
+    def test_faculty_of_finds_the_faculty(self):
+        for faculty, majors in vocabulary.MAJORS.items():
+            for major in majors:
+                with self.subTest(major=major):
+                    self.assertEqual(vocabulary.faculty_of(major), faculty)
+
+    def test_faculty_of_turns_down_an_unknown_major(self):
+        with self.assertRaisesRegex(ValueError, "Basket Weaving"):
+            vocabulary.faculty_of("Basket Weaving")
+
+    def test_english_is_not_a_listed_language(self):
+        # Everyone is taken to share English, so preferring it would rule
+        # nobody out.
+        self.assertNotIn("English", vocabulary.LANGUAGES)
+
+    def test_a_preference_is_either_hard_or_soft(self):
+        self.assertFalse(set(vocabulary.HARD_PREFERENCES) & set(vocabulary.SOFT_PREFERENCES))
+
+    def test_there_is_a_slot_for_every_day_and_block(self):
+        self.assertEqual(
+            len(vocabulary.SLOTS), len(vocabulary.DAYS) * len(vocabulary.BLOCKS)
+        )
+        self.assertIn("MON_MORNING", vocabulary.SLOTS)
+
+    def test_stating_no_preference_is_allowed(self):
+        # The default for the field, so this has to stay allowed.
+        self.assertIsNone(vocabulary.validate_preferences({}))
+
+    def test_every_key_in_the_schema_is_accepted(self):
+        # Adding a key to the schema without adding it here fails on the
+        # first assertion rather than going untested.
+        self.assertEqual(set(EVERY_PREFERENCE), set(vocabulary.PREFERENCE_KEYS))
+        self.assertIsNone(vocabulary.validate_preferences(EVERY_PREFERENCE))
+
+    def test_an_unknown_key_is_turned_down(self):
+        with self.assertRaisesRegex(ValueError, "star sign"):
+            vocabulary.validate_preferences({"star sign": frozenset({"Leo"})})
+
+    def test_a_value_outside_the_registry_is_turned_down(self):
+        with self.assertRaisesRegex(ValueError, "Klingon"):
+            vocabulary.validate_preferences({"languages": frozenset({"Klingon"})})
+
+    def test_an_empty_set_is_turned_down(self):
+        # Leaving the key out is the one way of saying there is no
+        # restriction. An empty set would otherwise read as either that or
+        # as ruling everybody out.
+        with self.assertRaisesRegex(ValueError, "genders"):
+            vocabulary.validate_preferences({"genders": frozenset()})
+
+    def test_a_set_is_needed_where_a_set_is_asked_for(self):
+        with self.assertRaisesRegex(ValueError, "genders"):
+            vocabulary.validate_preferences({"genders": "Female"})
+
+    def test_an_age_range_that_ends_before_it_starts_is_turned_down(self):
+        with self.assertRaisesRegex(ValueError, "age"):
+            vocabulary.validate_preferences({"age": (30, 20)})
+
+    def test_an_age_range_takes_two_whole_numbers(self):
+        # bool is a subclass of int, so True would otherwise be read as 1.
+        with self.assertRaisesRegex(ValueError, "age"):
+            vocabulary.validate_preferences({"age": (True, 24)})
+        with self.assertRaisesRegex(ValueError, "age"):
+            vocabulary.validate_preferences({"age": (19,)})
+
+    def test_same_area_only_takes_true_or_false(self):
+        with self.assertRaisesRegex(ValueError, "same_area_only"):
+            vocabulary.validate_preferences({"same_area_only": "yes"})
 
 
 class TestModels(unittest.TestCase):
