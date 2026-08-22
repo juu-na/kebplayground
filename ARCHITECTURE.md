@@ -61,13 +61,15 @@ Two tables are shared between the modules:
 - also work out how good a whole run was, using the average score, the score of the worst off user and how many users were left unmatched
 
 `matcher.py`: three ways of matching.
-1. greedy pairing. Take the best allowed pair still available, again and again. This gives the highest total score.
-2. Gale-Shapley matching, using lists of who each user would prefer, sorted by score. The total can be lower but guarantees that no unstable matching exists.
+1. greedy pairing. Take the best allowed pair still available, again and again. Nobody ends up wanting to swap, because both halves of a pair read the same score, so the best pair left has to be taken or those two would rather have each other. It does not give the highest total score, since taking the best pair can strand two people who each had a good second choice.
+2. fairest pairing. Work out each free user's best remaining partner and serve whoever is hardest to place first. Most pairs are banned by the time `constraints.py` has run, so this spends the few allowed partners on the people who have no others, and leaves fewer users out. The average score comes out lower in exchange.
 3. building groups from the bottom up. Start with everyone alone, then join the two closest groups until a stopping point is reached, such as a limit of n users per friend group. When judging a join, use the worst pair in the group rather than the average, so nobody ends up in a group with someone they do not get on with.
 
-- 1 and 2 are then compared, to see which works better
+- 1 and 2 are then compared, to see which works better. They want different things, so which is better depends on whether a run is judged on its average score or on how many people it left out
 - 3 is separate, and is used for friend group mode
 - all three read `S` and `H` only, and know nothing about users
+
+Gale-Shapley was tried and dropped. It settles a disagreement between two sides' preference orders, and `S` gives both halves of a pair the same number, so there is no disagreement to settle and any correct stable matching is the one greedy already returns.
 
 `llm.py`: asks an LLM to write the message shown to a matched pair.
 - write a system prompt that asks for a match message giving a reason and a suggestion

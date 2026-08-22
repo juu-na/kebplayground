@@ -50,8 +50,8 @@ without one.
 uv run python -m kebplayground.cli --mode NAME --algo NAME
 ```
 
-This raises `NotImplementedError` for now, since `scoring.py` and
-`matcher.py` have not been written yet.
+Every module is written, so this runs the whole pipeline and prints the
+matches.
 
 ### Arguments:
 
@@ -61,7 +61,7 @@ This raises `NotImplementedError` for now, since `scoring.py` and
 | `--count N` | how many users to make up, 100 by default |
 | `--seed N` | the seed used when making up users, so a run can be repeated exactly |
 | `--mode NAME` | the kind of connection, one of the modes in `scoring.WEIGHTS` |
-| `--algo NAME` | `greedy`, `stable` or `cluster` |
+| `--algo NAME` | `greedy`, `fairest` or `cluster` |
 | `--explain` | also ask the LLM to write the match messages |
 | `--cache PATH` | where the LLM answers are kept between runs, `.cache/llm.json` by default |
 | `--output PATH` | where to write the results as JSON |
