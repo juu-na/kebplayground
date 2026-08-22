@@ -28,16 +28,17 @@ _GENDERS = sorted(vocabulary.GENDERS)
 _AREAS = sorted(vocabulary.AREAS)
 _MODES = sorted(vocabulary.MODES)
 _LANGUAGES = sorted(vocabulary.LANGUAGES)
-_SLOTS = sorted(vocabulary.SLOTS)
 _INTERESTS = sorted(vocabulary.INTERESTS)
 
 # How many of each a made up user is given, as the lowest and the highest.
-# The slot range decides how many pairs share any free time at all, and
-# constraints.py bans a pair that shares none. The interest range decides how
-# often interest_similarity comes back as anything other than 0.0.
+# The interest range decides how often interest_similarity comes back as
+# anything other than 0.0.
 LANGUAGES_EACH = (1, 3)
-SLOTS_EACH = (4, 9)
 INTERESTS_EACH = (5, 10)
+
+# How often a made up user is open to both kinds of connection rather than
+# one. Most people want one thing.
+BOTH_MODES = 0.3
 
 # How many preferences a made up user states, and how often each count comes
 # up. Most people take anyone or nearly anyone, and a few are specific enough
@@ -70,11 +71,15 @@ REQUIRED_FIELDS = [
     "languages",
     "gender",
     "area",
-    "free_slots",
     "interests",
-    "mode",
+    "modes",
     "preferences",
 ]
+
+# Read with a fallback rather than required, so a file written before the
+# column existed still loads. It is still written on the way out.
+STATUS_FIELD = "status"
+WRITTEN_FIELDS = REQUIRED_FIELDS + [STATUS_FIELD]
 
 
 def _encode_preferences(preferences: dict[str, object]) -> str:
@@ -119,6 +124,21 @@ def _decode_preferences(val: str) -> dict[str, object]:
     return preferences
 
 
+def _parse_modes(val: str) -> frozenset[str]:
+    """Read the modes column, turning down a user who is open to nothing.
+
+    An empty set would mean a user nobody can ever be paired with, which is
+    the same trap as an empty preference set.
+    """
+    modes = _parse_frozenset(val)
+    if not modes:
+        raise ValueError("a user has to be open to at least one mode")
+    unknown = modes - vocabulary.MODES
+    if unknown:
+        raise ValueError(f"unknown mode: {', '.join(sorted(unknown))}")
+    return modes
+
+
 def _parse_frozenset(val: str) -> frozenset[str]:
     if not val or not val.strip():
         return frozenset()
@@ -148,14 +168,21 @@ def load_users(path: Path) -> list[User]:
                 languages=_parse_frozenset(row["languages"]),
                 gender=str(row["gender"]),
                 area=str(row["area"]),
-                free_slots=_parse_frozenset(row["free_slots"]),
                 interests=_parse_frozenset(row["interests"]),
-                mode=str(row["mode"]),
+                modes=_parse_modes(row["modes"]),
                 preferences=_decode_preferences(row["preferences"]),
+                status=row.get(STATUS_FIELD) or "waiting",
             )
             users.append(user)
 
     return users
+
+
+def _make_modes(rng: random.Random) -> frozenset[str]:
+    """One mode most of the time, both now and then."""
+    if rng.random() < BOTH_MODES:
+        return frozenset(_MODES)
+    return frozenset({rng.choice(_MODES)})
 
 
 def _make_preferences(rng: random.Random) -> dict[str, object]:
@@ -186,7 +213,6 @@ def generate_users(count: int = 100, seed: int | None = None) -> list[User]:
     users = []
     for i in range(count):
         num_langs = rng.randint(*LANGUAGES_EACH)
-        num_slots = rng.randint(*SLOTS_EACH)
         num_interests = rng.randint(*INTERESTS_EACH)
 
         # The faculty comes first so that the major can be one it teaches.
@@ -202,10 +228,10 @@ def generate_users(count: int = 100, seed: int | None = None) -> list[User]:
             languages=frozenset(rng.sample(_LANGUAGES, k=num_langs)),
             gender=rng.choice(_GENDERS),
             area=rng.choice(_AREAS),
-            free_slots=frozenset(rng.sample(_SLOTS, k=num_slots)),
             interests=frozenset(rng.sample(_INTERESTS, k=num_interests)),
-            mode=rng.choice(_MODES),
+            modes=_make_modes(rng),
             preferences=_make_preferences(rng),
+            status="waiting",
         )
         users.append(user)
 
@@ -216,7 +242,7 @@ def save_users(users: list[User], path: Path) -> None:
     path = Path(path)
 
     with path.open(mode="w", encoding="utf-8", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=REQUIRED_FIELDS)
+        writer = csv.DictWriter(f, fieldnames=WRITTEN_FIELDS)
         writer.writeheader()
 
         for u in users:
@@ -230,8 +256,8 @@ def save_users(users: list[User], path: Path) -> None:
                 "languages": SEPARATOR.join(sorted(u.languages)),
                 "gender": u.gender,
                 "area": u.area,
-                "free_slots": SEPARATOR.join(sorted(u.free_slots)),
                 "interests": SEPARATOR.join(sorted(u.interests)),
-                "mode": u.mode,
+                "modes": SEPARATOR.join(sorted(u.modes)),
                 "preferences": _encode_preferences(u.preferences),
+                STATUS_FIELD: u.status,
             })
