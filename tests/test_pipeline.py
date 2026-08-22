@@ -382,25 +382,123 @@ class TestFeatures(unittest.TestCase):
         self.assertEqual(set(features.measure(ALICE, BOB)), set(features.FEATURES))
 
 
-class TestConstraints(unittest.TestCase):
-    def test_a_user_cannot_be_matched_with_themselves(self):
-        self.assertFalse(constraints.is_allowed(ALICE, ALICE))
+# One soft preference of each kind that ALICE does not meet, worked out from
+# the registry rather than written down, so it stays unmet whatever is added
+# to vocabulary.py later.
+UNMET_SOFT_PREFERENCES: dict[str, object] = {
+    "majors": one_of(vocabulary.ALL_MAJORS - {ALICE.major}),
+    "faculties": one_of(vocabulary.FACULTIES - {ALICE.faculty}),
+    "years": one_of(vocabulary.YEARS - {ALICE.year}),
+    "mbti": one_of(vocabulary.MBTIS - {ALICE.mbti}),
+    "languages": one_of(vocabulary.LANGUAGES - ALICE.languages),
+    "interests": one_of(vocabulary.INTERESTS - ALICE.interests),
+    # Held against a user living somewhere other than ALICE does.
+    "same_area_only": True,
+}
 
-    def test_two_different_modes_are_banned(self):
-        self.assertFalse(constraints.is_allowed(ALICE, CHARLIE))
+
+class TestConstraints(unittest.TestCase):
+    # Each test below changes one thing about a pair that would otherwise be
+    # allowed. A rule that is missing from is_allowed then fails its own
+    # test, rather than being covered by whichever other rule the same pair
+    # happens to break.
 
     def test_a_sensible_pair_is_allowed(self):
         self.assertTrue(constraints.is_allowed(ALICE, BOB))
 
-    def test_allow_table_covers_every_pair_once(self):
+    def test_a_user_cannot_be_matched_with_themselves(self):
+        self.assertFalse(constraints.is_allowed(ALICE, ALICE))
+
+    def test_two_users_with_the_same_details_are_still_two_users(self):
+        # The rule is about the id. Two users who happen to agree on every
+        # other field are a real pair, and a good one.
+        twin = make_user("d")
+        self.assertTrue(constraints.is_allowed(ALICE, twin))
+
+    def test_the_same_id_is_the_same_user_however_the_details_differ(self):
+        # A file holding one id twice is how this arrives. Comparing whole
+        # users instead of ids would let the pair through, since the two
+        # differ on everything except the one field that matters.
+        same_id = make_user("a", age=30, mbti="ENFP", area="South")
+        self.assertFalse(constraints.is_allowed(ALICE, same_id))
+
+    def test_two_different_modes_are_banned(self):
+        lunch = make_user("d", mode="lunch mate")
+        self.assertFalse(constraints.is_allowed(ALICE, lunch))
+
+    def test_sharing_no_free_slot_is_banned(self):
+        busy = make_user("d", free_slots=frozenset({"FRI_EVENING"}))
+        self.assertFalse(constraints.is_allowed(ALICE, busy))
+
+    def test_a_gender_preference_rules_the_other_out(self):
+        picky = make_user("d", preferences={"genders": frozenset({"Non-binary"})})
+        self.assertFalse(constraints.is_allowed(picky, ALICE))
+
+    def test_a_gender_preference_holds_whichever_way_round_the_pair_comes(self):
+        # A rule read off the first user only would pass the test above and
+        # let this one through.
+        picky = make_user("d", preferences={"genders": frozenset({"Non-binary"})})
+        self.assertFalse(constraints.is_allowed(ALICE, picky))
+
+    def test_an_age_preference_rules_the_other_out(self):
+        picky = make_user("d", preferences={"age": (25, 30)})
+        self.assertFalse(constraints.is_allowed(picky, ALICE))
+
+    def test_an_age_preference_holds_whichever_way_round_the_pair_comes(self):
+        picky = make_user("d", preferences={"age": (25, 30)})
+        self.assertFalse(constraints.is_allowed(ALICE, picky))
+
+    def test_the_ends_of_an_age_range_are_included(self):
+        exact = make_user("d", preferences={"age": (ALICE.age, ALICE.age)})
+        self.assertTrue(constraints.is_allowed(exact, ALICE))
+
+    def test_a_preference_that_is_met_allows_the_pair(self):
+        # Stating a preference bans nobody on its own.
+        happy = make_user(
+            "d", preferences={"genders": frozenset({ALICE.gender}), "age": (18, 25)}
+        )
+        self.assertTrue(constraints.is_allowed(happy, ALICE))
+
+    def test_a_soft_preference_never_bans_a_pair(self):
+        # The soft keys move the score in scoring.py. Reading them here would
+        # ban pairs that are a worse match rather than an impossible one.
+        self.assertEqual(set(UNMET_SOFT_PREFERENCES), set(vocabulary.SOFT_PREFERENCES))
+        for key, value in UNMET_SOFT_PREFERENCES.items():
+            with self.subTest(preference=key):
+                fussy = make_user("d", area="South", preferences={key: value})
+                self.assertTrue(constraints.is_allowed(fussy, ALICE))
+
+    def test_the_allow_table_covers_every_pair_once(self):
         table = constraints.build_allow_table(USERS)
         self.assertEqual(len(table), 3)  # ab, ac, bc
         self.assertTrue(table[("a", "b")])
         self.assertFalse(table[("a", "c")])
+        self.assertFalse(table[("b", "c")])
 
-    def test_allow_table_never_pairs_a_user_with_themselves(self):
+    def test_the_allow_table_holds_one_entry_for_every_pair(self):
+        users = data.generate_users(12, seed=1)
+        self.assertEqual(len(constraints.build_allow_table(users)), 12 * 11 // 2)
+
+    def test_the_allow_table_never_pairs_a_user_with_themselves(self):
         table = constraints.build_allow_table(USERS)
         self.assertFalse([key for key in table if key[0] == key[1]])
+
+    def test_the_allow_table_is_keyed_the_way_pair_key_is(self):
+        # Everything reading H looks a pair up through pair_key, so a table
+        # keyed any other way cannot be read at all.
+        table = constraints.build_allow_table(USERS)
+        for x, y in itertools.combinations(USERS, 2):
+            with self.subTest(pair=(x.id, y.id)):
+                self.assertIn(pair_key(y, x), table)
+
+    def test_the_allow_table_agrees_with_is_allowed(self):
+        # The table is the only version anything downstream sees, so the two
+        # going out of step would be invisible until a banned pair matched.
+        users = data.generate_users(12, seed=1)
+        table = constraints.build_allow_table(users)
+        for x, y in itertools.combinations(users, 2):
+            with self.subTest(pair=(x.id, y.id)):
+                self.assertEqual(table[pair_key(x, y)], constraints.is_allowed(x, y))
 
 
 class TestScoring(unittest.TestCase):
