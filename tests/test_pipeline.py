@@ -459,6 +459,11 @@ class TestConstraints(unittest.TestCase):
         )
         self.assertTrue(constraints.is_allowed(happy, ALICE))
 
+    def test_every_hard_preference_is_one_is_allowed_reads(self):
+        # is_allowed names the two it checks. A key added to
+        # HARD_PREFERENCES and not read there would ban nobody.
+        self.assertEqual(set(vocabulary.HARD_PREFERENCES), {"genders", "age"})
+
     def test_a_soft_preference_never_bans_a_pair(self):
         # The soft keys move the score in scoring.py. Reading them here would
         # ban pairs that are a worse match rather than an impossible one.

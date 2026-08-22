@@ -6,7 +6,32 @@ A pair banned here stays banned even if it scores 1.0.
 Produces H, the allow table that matcher.py reads.
 """
 
-from .models import AllowTable, User
+import itertools
+
+from .models import AllowTable, User, pair_key
+
+
+def _preferences_allow(a: User, b: User) -> bool:
+    """Whether one user's stated preferences accept the other.
+
+    Only the hard preferences are read, the ones vocabulary.HARD_PREFERENCES
+    lists. The soft ones move the score in scoring.py, and reading them here
+    would ban a pair that is a worse match rather than an impossible one.
+
+    A key that is left out means no restriction, so a user who states nothing
+    accepts anybody.
+    """
+    genders = a.preferences.get("genders")
+    if genders is not None and b.gender not in genders:
+        return False
+
+    lowest_highest = a.preferences.get("age")
+    if lowest_highest is not None:
+        lowest, highest = lowest_highest
+        if not lowest <= b.age <= highest:
+            return False
+
+    return True
 
 
 def is_allowed(a: User, b: User) -> bool:
@@ -15,15 +40,29 @@ def is_allowed(a: User, b: User) -> bool:
     Input: two users.
     Output: True when the pair is allowed.
 
-    Rules to implement. Any one of these on its own bans the pair:
+    Any one of these on its own bans the pair:
     - the same user on both sides
     - the two users are looking for different modes
     - the two users share no free slot, so they could never meet
     - one user's stated preferences rule the other out
 
     Returning False as soon as one rule fails keeps this easy to read.
+
+    The first rule goes on the id rather than on the whole user. Two users
+    who happen to agree on every other field are a real pair, and a file
+    holding one id twice is not.
     """
-    raise NotImplementedError
+    if a.id == b.id:
+        return False
+
+    if a.mode != b.mode:
+        return False
+
+    if not a.free_slots & b.free_slots:
+        return False
+
+    # Both ways round. A preference stated by either user bans the pair.
+    return _preferences_allow(a, b) and _preferences_allow(b, a)
 
 
 def build_allow_table(users: list[User]) -> AllowTable:
@@ -32,11 +71,10 @@ def build_allow_table(users: list[User]) -> AllowTable:
     Input: the full list of users.
     Output: H, a dict giving True or False for each pair.
 
-    To implement: go through every pair once using
-    itertools.combinations(users, 2), get the key for each pair from
-    models.pair_key, and call is_allowed on it.
-
     combinations never pairs a user with themselves, so that case never
     reaches the table.
     """
-    raise NotImplementedError
+    return {
+        pair_key(x, y): is_allowed(x, y)
+        for x, y in itertools.combinations(users, 2)
+    }
