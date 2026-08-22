@@ -52,7 +52,7 @@ Rules:
 
 def describe(user: User) -> str:
     return (
-        f"User {user.id}: {user.major} {user.degree}, year {user.year}, "
+        f"User {user.id}: {user.major} {user.faculty}, year {user.year}, "
         f"age {user.age}, languages {sorted(user.languages)}, "
         f"interests {sorted(user.interests)}, looking for a {user.mode}"
     )
