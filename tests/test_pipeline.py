@@ -9,8 +9,8 @@ the pipeline.
 
 The tests check what each module promises the others, not one particular way
 of writing it. Where a choice is deliberately left open, such as the cut off
-distance in proximity_similarity, the test only checks that the answer sits
-between 0 and 1 and moves in the right direction.
+gap in age_similarity, the test only checks that the answer sits between 0
+and 1 and moves in the right direction.
 """
 
 import argparse
@@ -38,7 +38,7 @@ def make_user(uid: str, **overrides: object) -> User:
         "mbti": "INTJ",
         "languages": frozenset({"Korean"}),
         "gender": "Female",
-        "proximity_km": 2.0,
+        "area": "Central",
         "free_slots": frozenset({"MON_MORNING", "MON_AFTERNOON"}),
         "interests": frozenset({"Chess", "Hiking"}),
         "mode": "study buddy",
@@ -57,7 +57,6 @@ BOB = make_user(
     "b",
     age=21,
     languages=frozenset({"Korean", "Mandarin"}),
-    proximity_km=3.0,
     free_slots=frozenset({"MON_AFTERNOON", "MON_EVENING"}),
     interests=frozenset({"Chess"}),
 )
@@ -67,7 +66,7 @@ CHARLIE = make_user(
     faculty="Auckland Law School",
     age=30,
     languages=frozenset({"Mandarin"}),
-    proximity_km=20.0,
+    area="South",
     free_slots=frozenset({"FRI_EVENING"}),
     interests=frozenset({"Tennis"}),
     mode="lunch mate",
@@ -227,6 +226,7 @@ class TestData(unittest.TestCase):
                 self.assertIn(user.year, vocabulary.YEARS)
                 self.assertIn(user.mbti, vocabulary.MBTIS)
                 self.assertIn(user.gender, vocabulary.GENDERS)
+                self.assertIn(user.area, vocabulary.AREAS)
                 self.assertIn(user.mode, vocabulary.MODES)
                 self.assertEqual(user.languages - vocabulary.LANGUAGES, frozenset())
                 self.assertEqual(user.free_slots - vocabulary.SLOTS, frozenset())
@@ -247,8 +247,8 @@ class TestData(unittest.TestCase):
             path = Path(tmp) / "users.csv"
             # Omit exactly one required column so the failure is deterministic.
             path.write_text(
-                "id,major,year,age,mbti,languages,gender,proximity_km,free_slots,interests,mode\n"
-                "a,CS,2,20,INTJ,en,f,2.0,MON-09,chess,study buddy\n"
+                "id,major,year,age,mbti,languages,gender,area,free_slots,interests,mode\n"
+                "a,Law,2,20,INTJ,Korean,Female,Central,MON_MORNING,Chess,study buddy\n"
             )
             with self.assertRaisesRegex((KeyError, ValueError), r"\bfaculty\b"):
                 data.load_users(path)
@@ -326,13 +326,6 @@ class TestFeatures(unittest.TestCase):
                 with self.subTest(feature=name, a=x.id, b=y.id):
                     self.assertGreaterEqual(value, 0.0)
                     self.assertLessEqual(value, 1.0)
-
-    def test_closer_commutes_score_higher(self):
-        # The cut-off distance is a free choice, so only the direction is
-        # checked here.
-        near = features.proximity_similarity(ALICE, BOB)
-        far = features.proximity_similarity(ALICE, CHARLIE)
-        self.assertGreater(near, far)
 
     def test_closer_ages_score_higher(self):
         self.assertGreater(

@@ -111,29 +111,11 @@ def language_similarity(a: User, b: User) -> float:
     return min(1.0, ENGLISH_ONLY + sum(FURTHER_LANGUAGES[:shared]))
 
 
-def proximity_similarity(a: User, b: User) -> float:
-    """How similar the two commutes are.
-
-    To implement: take the difference between the two proximity_km values,
-    ignoring the sign, then turn it into a number from 0.0 to 1.0 where a
-    smaller difference gives a higher result.
-
-    This needs a cut-off distance, past which the sult is simply 0.0.
-    Choosing that distance is part of the task.
-    """
-    difference = abs(a.proximity_km - b.proximity_km)
-    if difference > 25.0:
-        return 0.0
-    else: 
-        score = (25 - difference)/25
-        return score
-
-
 def age_similarity(a: User, b: User) -> float:
     """How close the two users are in age.
 
-    To implement: the same approach as proximity_similarity, using age
-    instead of distance.
+    Ten years apart or more counts as nothing in common. Anything closer
+    than that scores higher the smaller the gap is.
     """
     difference = abs(a.age - b.age)
     if difference > 10:
@@ -151,7 +133,6 @@ FEATURES = {
     "major": major_similarity,
     "interests": interest_similarity,
     "languages": language_similarity,
-    "proximity": proximity_similarity,
     "age": age_similarity,
 }
 

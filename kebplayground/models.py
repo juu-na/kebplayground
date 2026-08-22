@@ -41,8 +41,9 @@ class User:
     mbti: str
     languages: frozenset[str]
     gender: str
-    # How far the user lives from the city campus, in km.
-    proximity_km: float
+    # Which part of Auckland the user lives in. Only ever read to work out
+    # whether two users live in the same one.
+    area: str
     # The slots the user is free. Any slot not listed counts as busy.
     free_slots: frozenset[Slot]
     interests: frozenset[str]

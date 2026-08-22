@@ -24,6 +24,7 @@ _MAJORS_BY_FACULTY = {
 _YEARS = sorted(vocabulary.YEARS)
 _MBTIS = sorted(vocabulary.MBTIS)
 _GENDERS = sorted(vocabulary.GENDERS)
+_AREAS = sorted(vocabulary.AREAS)
 _MODES = sorted(vocabulary.MODES)
 _LANGUAGES = sorted(vocabulary.LANGUAGES)
 _SLOTS = sorted(vocabulary.SLOTS)
@@ -46,7 +47,7 @@ REQUIRED_FIELDS = [
     "mbti",
     "languages",
     "gender",
-    "proximity_km",
+    "area",
     "free_slots",
     "interests",
     "mode",
@@ -81,7 +82,7 @@ def load_users(path: Path) -> list[User]:
                 mbti=str(row["mbti"]),
                 languages=_parse_frozenset(row["languages"]),
                 gender=str(row["gender"]),
-                proximity_km=float(row["proximity_km"]),
+                area=str(row["area"]),
                 free_slots=_parse_frozenset(row["free_slots"]),
                 interests=_parse_frozenset(row["interests"]),
                 mode=str(row["mode"]),
@@ -112,7 +113,7 @@ def generate_users(count: int = 100, seed: int | None = None) -> list[User]:
             mbti=rng.choice(_MBTIS),
             languages=frozenset(rng.sample(_LANGUAGES, k=num_langs)),
             gender=rng.choice(_GENDERS),
-            proximity_km=round(rng.uniform(0.5, 25.0), 1),
+            area=rng.choice(_AREAS),
             free_slots=frozenset(rng.sample(_SLOTS, k=num_slots)),
             interests=frozenset(rng.sample(_INTERESTS, k=num_interests)),
             mode=rng.choice(_MODES),
@@ -139,7 +140,7 @@ def save_users(users: list[User], path: Path) -> None:
                 "mbti": u.mbti,
                 "languages": SEPARATOR.join(sorted(u.languages)),
                 "gender": u.gender,
-                "proximity_km": u.proximity_km,
+                "area": u.area,
                 "free_slots": SEPARATOR.join(sorted(u.free_slots)),
                 "interests": SEPARATOR.join(sorted(u.interests)),
                 "mode": u.mode,

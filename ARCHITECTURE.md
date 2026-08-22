@@ -27,11 +27,16 @@ Two tables are shared between the modules:
 
 ## Phase 1
 
-`models.py`: describes what a user looks like, covering features such as `id, major, faculty, year, age, MBTI, languages, gender, proximity, timetable, interests, preferences, mode`, etc.
-- `mode` is the kind of connection the user is after, such as lunch mate, study buddy, long term friend group or campus couple
-- `proximity` is how far the user lives from the city campus
+`models.py`: describes what a user looks like, covering features such as `id, major, faculty, year, age, MBTI, languages, gender, area, timetable, interests, preferences, mode`, etc.
+- `mode` is the kind of connection the user is after, one of lunch mate, study buddy, friend group, besties or campus couple
+- `area` is the part of Auckland the user lives in, read only to work out whether two users live in the same one
+- `preferences` is what the user will accept in the other person, listed in `vocabulary.py`, where gender and age rule a pair out and the rest only move the score
 - `timetable` is a typical week of free and busy slots, so shared free time can be worked out
 - will not be modified once written and confirmed, since every other module imports it
+
+`vocabulary.py`: the registered options a user can be described by, such as the faculties and the majors each one teaches, the languages, the interests and the areas.
+- every other module reads its lists from here, so that made up users, the scores and the preferences all agree on the same values
+- also says which keys a user may state as a preference, and which of them rule a pair out rather than only moving the score
 
 `data.py`: reads users from a CSV file, and makes up a group of users for testing.
 - makes up user data, for example 100 users with a sensible spread of values
@@ -41,7 +46,7 @@ Two tables are shared between the modules:
 
 `features.py`: measures how alike two users are, one feature at a time.
 - each measurement is a function that takes two users and returns a number from 0 to 1 (0% to 100%)
-- features worth measuring include shared free time, same (or similar) major, shared interests, languages and how far apart they live
+- features worth measuring include shared free time, same (or similar) major, shared interests, languages and how close in age they are
 - only measures (makes no decisions) and does not know that matching exists
 - returns the name of each measurement and its result
 
