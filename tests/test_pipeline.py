@@ -14,6 +14,7 @@ and 1 and moves in the right direction.
 """
 
 import argparse
+import csv
 import itertools
 import os
 import subprocess
@@ -203,7 +204,8 @@ class TestData(unittest.TestCase):
         # directly would break the seed without any single run noticing.
         script = (
             "from kebplayground import data;"
-            "print([(u.major, sorted(u.interests)) for u in data.generate_users(5, seed=1)])"
+            "print([(u.major, sorted(u.interests), sorted(u.preferences)) "
+            "for u in data.generate_users(5, seed=1)])"
         )
         runs = set()
         for hash_seed in ("0", "1"):
@@ -239,6 +241,49 @@ class TestData(unittest.TestCase):
             path = Path(tmp) / "users.csv"
             data.save_users(USERS, path)
             self.assertEqual(data.load_users(path), USERS)
+
+    def test_made_up_preferences_are_ones_the_schema_allows(self):
+        for user in data.generate_users(50, seed=1):
+            with self.subTest(user=user.id):
+                self.assertIsNone(vocabulary.validate_preferences(user.preferences))
+
+    def test_made_up_users_range_from_no_preferences_to_several(self):
+        # A run where everybody takes anyone would never reach the ban rules,
+        # and one where everybody is specific would ban almost every pair.
+        stated = [len(user.preferences) for user in data.generate_users(200, seed=1)]
+        self.assertEqual(min(stated), 0)
+        self.assertGreaterEqual(max(stated), 4)
+
+    def test_every_preference_in_the_schema_can_be_made_up(self):
+        # A key added to the schema and not to data.py would never appear in
+        # a made up user, so nothing downstream would ever meet it.
+        buildable = set(data._PREFERENCE_VALUES) | {vocabulary.AGE, vocabulary.SAME_AREA_ONLY}
+        self.assertEqual(buildable, set(vocabulary.PREFERENCE_KEYS))
+
+    def test_preferences_survive_being_saved_and_read_back(self):
+        # JSON has no set and no pair, so the column has to rebuild both. A
+        # user whose preferences come back as lists is not the user that was
+        # saved, and every module compares users by value.
+        picky = make_user("p", preferences=EVERY_PREFERENCE)
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "users.csv"
+            data.save_users([picky], path)
+            self.assertEqual(data.load_users(path), [picky])
+
+    def test_a_preference_in_the_file_is_checked_on_the_way_in(self):
+        # A file is the one way a preference arrives without going through
+        # the code that built it, so it is the one place worth checking.
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "users.csv"
+            data.save_users([make_user("p")], path)
+            rows = list(csv.DictReader(path.open(encoding="utf-8")))
+            rows[0]["preferences"] = '{"languages": ["Klingon"]}'
+            with path.open("w", encoding="utf-8", newline="") as f:
+                writer = csv.DictWriter(f, fieldnames=data.REQUIRED_FIELDS)
+                writer.writeheader()
+                writer.writerows(rows)
+            with self.assertRaisesRegex(ValueError, "Klingon"):
+                data.load_users(path)
 
     def test_a_missing_column_is_reported(self):
         # The error names the column, rather than the run failing later in
