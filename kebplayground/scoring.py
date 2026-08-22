@@ -6,6 +6,8 @@ because llm.py needs them to explain why a pair was matched.
 """
 
 from .models import AllowTable, ScoreTable, User
+from . import features
+
 
 # How much each measurement counts, for each mode.
 # The weights inside one mode are to add up to 1.0. That is what keeps the
@@ -13,42 +15,47 @@ from .models import AllowTable, ScoreTable, User
 # The numbers below are examples. Tune them to improve scoring accuracy.
 WEIGHTS: dict[str, dict[str, float]] = {
     "lunch mate": {
-        "timetable": 0.6,
+        "timetable": 0.5,
         "interests": 0.2,
         "languages": 0.1,
         "age": 0.1,
         "major": 0.0,
+        "mbti": 0.1,
     },
     "study buddy": {
         "major": 0.4,
         "timetable": 0.3,
-        "interests": 0.15,
-        "languages": 0.1,
-        "age": 0.05,
+        "interests": 0.0,
+        "languages": 0.15,
+        "age": 0.15,
+        "mbti": 0.0,
     },
     "friend group": {
-        "interests": 0.45,
+        "interests": 0.35,
         "timetable": 0.2,
         "age": 0.2,
         "languages": 0.15,
         "major": 0.0,
+        "mbti": 0.1,
     },
     # One close friend rather than a group. Shared free time counts for more
     # than it does in friend group because the two actually have to meet, and
     # sharing a subject counts for something because they are around each
     # other anyway. Age barely matters once somebody is a close friend.
     "besties": {
-        "interests": 0.4,
-        "timetable": 0.25,
+        "interests": 0.25,
+        "mbti": 0.25,
+        "timetable": 0.15,
         "major": 0.15,
         "languages": 0.15,
         "age": 0.05,
     },
     "campus couple": {
-        "interests": 0.35,
+        "interests": 0.25,
+        "mbti": 0.25,
         "age": 0.25,
-        "timetable": 0.2,
-        "languages": 0.2,
+        "timetable": 0.1,
+        "languages": 0.15,
         "major": 0.0,
     },
 }
@@ -69,7 +76,15 @@ def score_pair(a: User, b: User, mode: str) -> tuple[float, dict[str, float]]:
     default set of weights. A fallback would turn a typo in the command line
     argument into a run that looks like it worked.
     """
-    raise NotImplementedError
+    measurements = features.measure(a, b)
+    weights = WEIGHTS.get(mode)
+    if weights is None:
+        raise ValueError(f"Unknown mode: {mode}")
+
+    total_score = sum(measurements[name] * weight for name, weight in weights.items())
+    return total_score, measurements
+
+
 
 
 def build_score_table(
