@@ -21,6 +21,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import unittest.mock
 from pathlib import Path
 
 from kebplayground import constraints, data, features, llm, matcher, scoring, vocabulary
@@ -659,6 +660,86 @@ class TestLLM(unittest.TestCase):
             llm.verify("You both study CS and share a free hour on Monday.",
                        {"major": 1.0, "timetable": 0.33})
         )
+
+    def test_a_reason_that_was_not_measured_is_turned_down(self):
+        # The whole point of the check. Nothing measured how close in age
+        # the two are, so the model made that up.
+        self.assertFalse(
+            llm.verify("You are both the same age, so grab a coffee.",
+                       {"major": 1.0, "timetable": 0.33})
+        )
+
+    def test_a_word_holding_another_word_inside_it_is_not_a_mention(self):
+        # language holds age, and manage holds age. Matching on the bare
+        # letters turned both of these down.
+        self.assertTrue(
+            llm.verify("You both speak Korean, so swap a language tip.",
+                       {"languages": 1.0, "interests": 0.5})
+        )
+        self.assertTrue(
+            llm.verify("You share three interests, so manage a catch up.",
+                       {"interests": 1.0})
+        )
+
+    def test_a_plural_still_counts_as_a_mention(self):
+        self.assertFalse(
+            llm.verify("You have interests in common.", {"major": 1.0})
+        )
+
+    def test_every_measurement_has_words_that_give_it_away(self):
+        # A measurement added to FEATURES without words here would never be
+        # checked, so the model could name it without having been given it.
+        self.assertEqual(set(llm.REASON_WORDS), set(features.FEATURES))
+
+    def test_a_long_message_is_turned_down(self):
+        self.assertFalse(llm.verify("x" * (llm.LONGEST + 1), {"major": 1.0}))
+
+    def test_the_plain_message_names_only_what_was_measured(self):
+        plain = llm.plain_message({"interests": 0.8, "timetable": 0.4})
+        self.assertIn("interests", plain)
+        self.assertTrue(llm.verify(plain, {"interests": 0.8, "timetable": 0.4}))
+
+    def test_the_plain_message_copes_with_nothing_in_common(self):
+        self.assertTrue(llm.plain_message({"interests": 0.0}).strip())
+
+    def test_no_api_key_gives_the_plain_message_rather_than_raising(self):
+        # A missing key is the normal state for anyone who has not set one
+        # up, and it must not stop a run.
+        with unittest.mock.patch.object(llm, "_api_key", return_value=None):
+            message = llm.explain(ALICE, BOB, 0.7, {"major": 1.0})
+        self.assertEqual(message, llm.plain_message({"major": 1.0}))
+
+    def test_an_answer_is_kept_and_read_back(self):
+        saved = "You both study CS and share a free hour on Monday."
+        with tempfile.TemporaryDirectory() as tmp:
+            cache = Path(tmp) / "llm_cache.json"
+            with unittest.mock.patch.object(llm, "_ask_the_model", return_value=saved):
+                first = llm.explain(ALICE, BOB, 0.7, {"major": 1.0}, cache=cache)
+            # The model is not reachable the second time round. The answer
+            # has to come out of the file.
+            with unittest.mock.patch.object(llm, "_ask_the_model", return_value=None):
+                second = llm.explain(ALICE, BOB, 0.7, {"major": 1.0}, cache=cache)
+        self.assertEqual(first, saved)
+        self.assertEqual(second, saved)
+
+    def test_the_cache_directory_is_made_when_it_is_not_there(self):
+        # The cache sits in its own directory, which does not exist on a
+        # first run. Writing into a missing one would end the run.
+        saved = "You both study CS and share a free hour on Monday."
+        with tempfile.TemporaryDirectory() as tmp:
+            cache = Path(tmp) / ".cache" / "llm.json"
+            with unittest.mock.patch.object(llm, "_ask_the_model", return_value=saved):
+                llm.explain(ALICE, BOB, 0.7, {"major": 1.0}, cache=cache)
+            self.assertTrue(cache.exists())
+
+    def test_a_plain_message_is_never_kept(self):
+        # Caching it would keep handing it back on later runs that could
+        # have asked the model properly.
+        with tempfile.TemporaryDirectory() as tmp:
+            cache = Path(tmp) / "llm_cache.json"
+            with unittest.mock.patch.object(llm, "_ask_the_model", return_value=None):
+                llm.explain(ALICE, BOB, 0.7, {"major": 1.0}, cache=cache)
+            self.assertFalse(cache.exists())
 
 
 class TestCLI(unittest.TestCase):

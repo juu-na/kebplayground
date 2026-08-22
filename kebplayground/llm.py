@@ -10,18 +10,54 @@ JSON file. This is to prevent a failed API call breaking a live demo.
 """
 import json
 import os
-from dotenv import load_dotenv
-
-load_dotenv()  # loads .env into the environment
-
-api_key = os.getenv("GEMINI_API_KEY")
-
-
+import re
+import sys
 from pathlib import Path
 
 from .models import User
 
 MODEL = "gemini-3.6-flash"
+
+# The environment variable the key is read from. Copy .env.example to .env
+# and put the key there.
+API_KEY = "GEMINI_API_KEY"
+
+_already_said: set[str] = set()
+
+
+def _say_once(note: str) -> None:
+    """Say something on the way past, once per run.
+
+    explain is called for every matched pair, so without this a missing key
+    would print the same line a hundred times.
+    """
+    if note in _already_said:
+        return
+    _already_said.add(note)
+    print(f"llm: {note}", file=sys.stderr)
+
+
+def _api_key() -> str | None:
+    """Read the key at the point it is needed.
+
+    Reading it when this module is imported would mean the whole command
+    line and the whole test suite stopped working without python-dotenv
+    installed, since cli.py imports this module whether --explain was asked
+    for or not. It would also mean a key set after the import was ignored.
+
+    python-dotenv only copies .env into the environment, so a key exported
+    some other way works just as well and its absence is not worth failing
+    over.
+    """
+    try:
+        from dotenv import load_dotenv
+    except ImportError:
+        pass
+    else:
+        load_dotenv()
+
+    return os.getenv(API_KEY)
+
 
 SYSTEM_PROMPT = """\
 You write a short message shown to two people who have just been matched by
@@ -49,6 +85,7 @@ Rules:
 - Output only the message itself. No greeting, no signature, no labels like
   "Message:".
 """
+
 
 def describe(user: User) -> str:
     return (
@@ -121,6 +158,40 @@ def explain(
         if key in saved:
             return saved[key]
 
+    message = _ask_the_model(a, b, score, breakdown)
+    if message is None:
+        # Nothing is cached here. A plain message is what gets written when
+        # the model could not be reached, and caching it would keep handing
+        # it back on later runs that could have asked properly.
+        return plain_message(breakdown)
+
+    if cache is not None:
+        # The cache lives in its own directory, which is not there on a first
+        # run. Without this the first answer worth keeping ends the run.
+        cache.parent.mkdir(parents=True, exist_ok=True)
+        saved[key] = message
+        cache.write_text(json.dumps(saved, indent=2))
+
+    return message
+
+
+def _ask_the_model(
+    a: User,
+    b: User,
+    score: float,
+    breakdown: dict[str, float],
+) -> str | None:
+    """Ask the model for one message, or return None when it cannot be had.
+
+    None covers every way this can go wrong: no key, no package, a failed
+    call, and a reply that verify turned down. The caller falls back to a
+    plain message either way, so the rest of the run still finishes.
+    """
+    api_key = _api_key()
+    if not api_key:
+        _say_once(f"{API_KEY} is not set, so the messages are the plain ones.")
+        return None
+
     try:
         from google import genai
 
@@ -131,20 +202,55 @@ def explain(
             config={"system_instruction": SYSTEM_PROMPT},
         )
         message = (response.text or "").strip()
-        if not verify(message, breakdown):
-            raise ValueError("model reply failed verification")
-    except Exception:
-        ranked = sorted(breakdown.items(), key=lambda item: item[1], reverse=True)
-        top_names = [name for name, value in ranked if value > 0][:2]
-        if top_names:
-            return f"You two were matched because of {' and '.join(top_names)}. Say hi!"
-        return "You two were matched. Say hi and see what you have in common."
+    except Exception as went_wrong:
+        _say_once(f"the model could not be reached ({went_wrong}), so the messages are the plain ones.")
+        return None
 
-    if cache is not None:
-        saved[key] = message
-        cache.write_text(json.dumps(saved, indent=2))
+    if not verify(message, breakdown):
+        _say_once("a reply was turned down by verify, so that pair gets the plain message.")
+        return None
 
     return message
+
+
+def plain_message(breakdown: dict[str, float]) -> str:
+    """The message shown when the model was not used.
+
+    Built out of the measurements alone, so it names nothing that was not
+    measured.
+    """
+    ranked = sorted(breakdown.items(), key=lambda item: item[1], reverse=True)
+    top_names = [name for name, value in ranked if value > 0][:2]
+    if top_names:
+        return f"You two were matched on {' and '.join(top_names)}. Say hi!"
+    return "You two were matched. Say hi and see what you have in common."
+
+
+# The longest message worth showing. The system prompt asks for the same
+# number, so a reply past it is one that ignored the instructions.
+LONGEST = 300
+
+# The words that give away which measurement a message is leaning on, one
+# entry per measurement in features.FEATURES. A message may only name a
+# measurement it was handed, so naming one that is missing from the
+# breakdown means the model made the reason up.
+REASON_WORDS: dict[str, tuple[str, ...]] = {
+    "timetable": ("free time", "schedule", "timetable", "free hour"),
+    "interests": ("interest", "hobby", "hobbies"),
+    "languages": ("language",),
+    "major": ("major", "subject", "study the same", "both study"),
+    "age": ("age", "years old"),
+}
+
+
+def _mentions(message: str, word: str) -> bool:
+    """Whether a message uses one word, rather than merely containing it.
+
+    Matching on the bare letters turned down any message using the word
+    language, since it holds age inside it. The plural and the usual endings
+    still count, so interests matches interest.
+    """
+    return re.search(rf"\b{re.escape(word)}(?:s|es|ed|ing)?\b", message) is not None
 
 
 def verify(message: str, breakdown: dict[str, float]) -> bool:
@@ -160,23 +266,14 @@ def verify(message: str, breakdown: dict[str, float]) -> bool:
     if not message.strip():
         return False
 
-    if len(message) > 300:
+    if len(message) > LONGEST:
         return False
 
     lowered = message.lower()
-    all_reasons = {
-        "timetable": ["free time", "schedule", "timetable", "free hour"],
-        "proximity": ["live close", "nearby", "distance", "commute"],
-        "interests": ["interest", "hobby", "hobbies"],
-        "languages": ["language"],
-        "major": ["major", "subject", "study the same", "both study"],
-        "age": ["age", "years old"],
-    }
-    for name, keywords in all_reasons.items():
+    for name, words in REASON_WORDS.items():
         if name in breakdown:
             continue
-        for keyword in keywords:
-            if keyword in lowered:
-                return False
+        if any(_mentions(lowered, word) for word in words):
+            return False
 
     return True

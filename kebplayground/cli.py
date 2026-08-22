@@ -25,6 +25,8 @@ def build_parser() -> argparse.ArgumentParser:
                        scoring.WEIGHTS
       --algo NAME      one of the names in matcher.ALGORITHMS, or "cluster"
       --explain        also ask the LLM to write the match messages
+      --cache PATH     where the LLM answers are kept between runs,
+                       .cache/llm.json by default
       --output PATH    where to write the results as JSON
     """
     parser = argparse.ArgumentParser()
@@ -34,6 +36,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--mode", required=True, choices=list(scoring.WEIGHTS))
     parser.add_argument("--algo", required=True, choices=(list(matcher.ALGORITHMS) + ["cluster"]))
     parser.add_argument("--explain", action="store_true")
+    parser.add_argument("--cache", default=".cache/llm.json")
     parser.add_argument("--output")
 
     return parser
@@ -85,7 +88,11 @@ def run(args: argparse.Namespace) -> dict[str, object]:
         if args.explain:
             _, breakdown = scoring.score_pair(user_map[a], user_map[b], args.mode)
             entry["message"] = llm.explain(
-                user_map[a], user_map[b], S[(a, b)], breakdown
+                user_map[a],
+                user_map[b],
+                S[(a, b)],
+                breakdown,
+                cache=Path(args.cache) if args.cache else None,
             )
         records.append(entry)
 
