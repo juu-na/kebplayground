@@ -133,10 +133,9 @@ def average_score(matches: list[tuple[str, str]], scores: ScoreTable) -> float:
 
     Returns 0.0 when nothing was matched.
     """
-    avg_score = sum(scores[pair_key(a, b)] for a, b in matches) / len(matches) 
     if not matches:
         return 0.0
-    return avg_score
+    return sum(scores[pair_key(a, b)] for a, b in matches) / len(matches)
 
 
 def worst_off_score(matches: list[tuple[str, str]], scores: ScoreTable) -> float:
@@ -144,16 +143,14 @@ def worst_off_score(matches: list[tuple[str, str]], scores: ScoreTable) -> float
 
     A good average can hide one user matched at 0.1. This number shows it.
     """
-    worst_score = min(scores[pair_key(a, b)] for a, b in matches)
     if not matches:
         return 0.0
-    return worst_score
+    return min(scores[pair_key(a, b)] for a, b in matches)
 
 
 def unmatched_count(users: list[User], matches: list[tuple[str, str]]) -> int:
     """How many users were left out of every match."""
-
-    matched_ids = {i for pair in matches for i in pair}
+    matched_ids = {uid for pair in matches for uid in pair}
     return len(users) - len(matched_ids)
 
 
