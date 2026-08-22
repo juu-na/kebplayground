@@ -240,6 +240,7 @@ REASON_WORDS: dict[str, tuple[str, ...]] = {
     "languages": ("language",),
     "major": ("major", "subject", "study the same", "both study"),
     "age": ("age", "years old"),
+    "mbti": ("mbti", "personality", "introvert", "extrovert"),
 }
 
 
