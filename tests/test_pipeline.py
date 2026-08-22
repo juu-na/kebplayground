@@ -379,6 +379,39 @@ class TestFeatures(unittest.TestCase):
             features.age_similarity(ALICE, CHARLIE),
         )
 
+    def test_the_best_possible_personality_pair_scores_one(self):
+        # Same S/N, opposite E/I, same T/F, opposite J/P.
+        self.assertEqual(features.mbti_similarity(*self.two_types("INTJ", "ENTP")), 1.0)
+
+    def test_the_worst_possible_personality_pair_scores_zero(self):
+        self.assertEqual(features.mbti_similarity(*self.two_types("INTJ", "ISFJ")), 0.0)
+
+    def test_two_of_the_same_type_are_not_the_best_pair(self):
+        # E/I and J/P reward opposites, so the same type scores below the
+        # complementary one. This is the rule rather than an oversight.
+        same = features.mbti_similarity(*self.two_types("INTJ", "INTJ"))
+        opposite = features.mbti_similarity(*self.two_types("INTJ", "ENTP"))
+        self.assertLess(same, opposite)
+
+    def test_sensing_and_intuition_counts_double(self):
+        # Breaking S/N costs twice what breaking T/F costs, which is what
+        # makes it the letter that matters most.
+        best = features.mbti_similarity(*self.two_types("INTJ", "ENTP"))
+        without_sn = features.mbti_similarity(*self.two_types("INTJ", "ESTP"))
+        without_tf = features.mbti_similarity(*self.two_types("INTJ", "ENFP"))
+        self.assertAlmostEqual(best - without_sn, 2 * (best - without_tf))
+
+    def test_personality_reads_the_same_either_way_round(self):
+        a, b = self.two_types("INTJ", "ESFP")
+        self.assertEqual(
+            features.mbti_similarity(a, b), features.mbti_similarity(b, a)
+        )
+
+    @staticmethod
+    def two_types(one: str, other: str) -> tuple[User, User]:
+        """Two users who differ only in personality type."""
+        return make_user("x", mbti=one), make_user("y", mbti=other)
+
     def test_measure_returns_every_listed_measurement(self):
         self.assertEqual(set(features.measure(ALICE, BOB)), set(features.FEATURES))
 
