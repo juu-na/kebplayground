@@ -21,7 +21,7 @@ from pathlib import Path
 
 from .models import User
 
-MODEL = "gemini-2.5-flash"
+MODEL = "gemini-3.6-flash"
 
 SYSTEM_PROMPT = """\
 You write a short message shown to two people who have just been matched by
