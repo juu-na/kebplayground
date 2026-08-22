@@ -33,13 +33,15 @@ FACULTY_WEIGHT = 0.8
 MAJOR_WEIGHT = 0.2
 
 #이과 = 1, 문과 = 0 ??
+# One entry for every faculty in vocabulary.FACULTIES. A faculty missing here
+# makes major_similarity raise on anyone studying in it.
 FACULTY_TECHINESS = {
-    "Engineering and Design": 1.0,
-    "Science": 0.8,   
-    "Medical and Health Sciences": 0.6,
-    "Business": 0.4,
-    "Law": 0.2,   
-    "Arts and Education": 0.0,
+    "Faculty of Engineering and Design": 1.0,
+    "Faculty of Science": 0.8,
+    "Faculty of Medical and Health Sciences": 0.6,
+    "Business School": 0.4,
+    "Auckland Law School": 0.2,
+    "Faculty of Arts and Education": 0.0,
 }
 
 
@@ -59,7 +61,8 @@ def major_similarity(a: User, b: User) -> float:
         a_score = FACULTY_TECHINESS.get(a.faculty)
         b_score = FACULTY_TECHINESS.get(b.faculty)
         if a_score is None or b_score is None:
-            raise ValueError
+            unknown = a.faculty if a_score is None else b.faculty
+            raise ValueError(f"no teachiness score for faculty: {unknown}")
         score += FACULTY_WEIGHT *(1-(abs(a_score - b_score)))
 
     if a.major == b.major:
@@ -85,49 +88,34 @@ def interest_similarity(a: User, b: User) -> float:
     return num_shared_interest/num_total_interest
 
 
+# vocabulary.LANGUAGES leaves English out because everyone is taken to speak
+# it. Two users who list nothing in common therefore still have English, and
+# that one shared language is what ENGLISH_ONLY stands for.
+ENGLISH_ONLY = 0.4
+# What each further shared language adds, in order. The steps get smaller
+# because the first language two people share does most of the work, and they
+# run out after three, so a fifth shared language counts for nothing.
+FURTHER_LANGUAGES = (0.3, 0.2, 0.1)
+
+
 def language_similarity(a: User, b: User) -> float:
-    """Whether the two users share a language they can talk in.
+    """How many languages the two users can talk in.
 
-    To implement: having one language in common is what matters, having
-    three in common is not three times better. Returning either 1.0 or 0.0
-    is reasonable here.
+    Sharing a language on top of English is worth something, and a second and
+    a third are worth a little less each time. The steps stop after that, so
+    a long list cannot outweigh everything else.
     """
-    common_language = len(a.languages & b.languages)
-    
-    if (len(a.languages) == 1 or len(b.languages) == 1) and common_language == 1:
-        return 1.0
-
-    if common_language == 1:
-        return 0.9
-    elif  common_language > 1:
-        return 1.0
-    else:
-        return 0.0
-
-
-def proximity_similarity(a: User, b: User) -> float:
-    """How similar the two commutes are.
-
-    To implement: take the difference between the two proximity_km values,
-    ignoring the sign, then turn it into a number from 0.0 to 1.0 where a
-    smaller difference gives a higher result.
-
-    This needs a cut-off distance, past which the sult is simply 0.0.
-    Choosing that distance is part of the task.
-    """
-    difference = abs(a.proximity_km - b.proximity_km)
-    if difference > 25.0:
-        return 0.0
-    else: 
-        score = (25 - difference)/25
-        return score
+    shared = len(a.languages & b.languages)
+    # The steps add up to exactly 1.0, but only to within the rounding error
+    # of adding floats, so the result is held to the top of the range.
+    return min(1.0, ENGLISH_ONLY + sum(FURTHER_LANGUAGES[:shared]))
 
 
 def age_similarity(a: User, b: User) -> float:
     """How close the two users are in age.
 
-    To implement: the same approach as proximity_similarity, using age
-    instead of distance.
+    Ten years apart or more counts as nothing in common. Anything closer
+    than that scores higher the smaller the gap is.
     """
     difference = abs(a.age - b.age)
     if difference > 10:
@@ -145,7 +133,6 @@ FEATURES = {
     "major": major_similarity,
     "interests": interest_similarity,
     "languages": language_similarity,
-    "proximity": proximity_similarity,
     "age": age_similarity,
 }
 

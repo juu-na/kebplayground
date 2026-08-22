@@ -13,35 +13,42 @@ from .models import AllowTable, ScoreTable, User
 # The numbers below are examples. Tune them to improve scoring accuracy.
 WEIGHTS: dict[str, dict[str, float]] = {
     "lunch mate": {
-        "timetable": 0.5,
-        "proximity": 0.2,
-        "interests": 0.15,
+        "timetable": 0.6,
+        "interests": 0.2,
         "languages": 0.1,
+        "age": 0.1,
         "major": 0.0,
-        "age": 0.05,
     },
     "study buddy": {
         "major": 0.4,
         "timetable": 0.3,
-        "interests": 0.1,
+        "interests": 0.15,
         "languages": 0.1,
-        "proximity": 0.05,
         "age": 0.05,
     },
     "friend group": {
-        "interests": 0.4,
+        "interests": 0.45,
         "timetable": 0.2,
+        "age": 0.2,
         "languages": 0.15,
-        "age": 0.15,
-        "proximity": 0.1,
         "major": 0.0,
     },
+    # One close friend rather than a group. Shared free time counts for more
+    # than it does in friend group because the two actually have to meet, and
+    # sharing a subject counts for something because they are around each
+    # other anyway. Age barely matters once somebody is a close friend.
+    "besties": {
+        "interests": 0.4,
+        "timetable": 0.25,
+        "major": 0.15,
+        "languages": 0.15,
+        "age": 0.05,
+    },
     "campus couple": {
-        "interests": 0.3,
+        "interests": 0.35,
         "age": 0.25,
         "timetable": 0.2,
-        "languages": 0.15,
-        "proximity": 0.1,
+        "languages": 0.2,
         "major": 0.0,
     },
 }

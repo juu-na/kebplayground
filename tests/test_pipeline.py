@@ -9,16 +9,21 @@ the pipeline.
 
 The tests check what each module promises the others, not one particular way
 of writing it. Where a choice is deliberately left open, such as the cut off
-distance in proximity_similarity, the test only checks that the answer sits
-between 0 and 1 and moves in the right direction.
+gap in age_similarity, the test only checks that the answer sits between 0
+and 1 and moves in the right direction.
 """
 
 import argparse
+import csv
+import itertools
+import os
+import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
 
-from kebplayground import constraints, data, features, llm, matcher, scoring
+from kebplayground import constraints, data, features, llm, matcher, scoring, vocabulary
 from kebplayground.cli import build_parser
 from kebplayground.models import User, pair_key
 
@@ -27,16 +32,16 @@ def make_user(uid: str, **overrides: object) -> User:
     """Build a user. Every field has a default, so a test sets only the ones it reads."""
     fields: dict[str, object] = {
         "id": uid,
-        "major": "CS",
-        "faculty": "Science",
+        "major": "Computer Science",
+        "faculty": "Faculty of Science",
         "year": 2,
         "age": 20,
         "mbti": "INTJ",
-        "languages": frozenset({"en"}),
-        "gender": "f",
-        "proximity_km": 2.0,
-        "free_slots": frozenset({"MON-09", "MON-10"}),
-        "interests": frozenset({"chess", "hiking"}),
+        "languages": frozenset({"Korean"}),
+        "gender": "Female",
+        "area": "Central",
+        "free_slots": frozenset({"MON_MORNING", "MON_AFTERNOON"}),
+        "interests": frozenset({"Chess", "Hiking"}),
         "mode": "study buddy",
         "preferences": {},
     }
@@ -45,29 +50,131 @@ def make_user(uid: str, **overrides: object) -> User:
 
 
 # Three users, covering the cases the pipeline has to tell apart.
-# ALICE and BOB could sensibly be matched. CHARLIE has nothing in common with
-# either of them and wants a different mode.
+# ALICE and BOB could sensibly be matched. CHARLIE wants a different mode, is
+# free at a different time, and studies at the other end of the teachiness
+# scale, so the two of them are the furthest apart the registry allows.
 ALICE = make_user("a")
 BOB = make_user(
     "b",
     age=21,
-    languages=frozenset({"en", "ko"}),
-    proximity_km=3.0,
-    free_slots=frozenset({"MON-10", "MON-11"}),
-    interests=frozenset({"chess"}),
+    languages=frozenset({"Korean", "Mandarin"}),
+    free_slots=frozenset({"MON_AFTERNOON", "MON_EVENING"}),
+    interests=frozenset({"Chess"}),
 )
 CHARLIE = make_user(
     "c",
     major="Law",
-    faculty="Law",
+    faculty="Auckland Law School",
     age=30,
-    languages=frozenset({"ko"}),
-    proximity_km=20.0,
-    free_slots=frozenset({"FRI-15"}),
-    interests=frozenset({"tennis"}),
+    languages=frozenset({"Mandarin"}),
+    area="South",
+    free_slots=frozenset({"FRI_EVENING"}),
+    interests=frozenset({"Tennis"}),
     mode="lunch mate",
 )
 USERS = [ALICE, BOB, CHARLIE]
+
+
+def one_of(registered: frozenset) -> frozenset:
+    """One value out of a registry, so a fixture does not go stale when the
+    registry is edited."""
+    return frozenset(sorted(registered)[:1])
+
+
+# One preference of every kind, used to check that each key is accepted and
+# that no key has been added to the schema without a test covering it.
+EVERY_PREFERENCE: dict[str, object] = {
+    "genders": one_of(vocabulary.GENDERS),
+    "age": (19, 24),
+    "majors": one_of(vocabulary.ALL_MAJORS),
+    "faculties": one_of(vocabulary.FACULTIES),
+    "years": one_of(vocabulary.YEARS),
+    "mbti": one_of(vocabulary.MBTIS),
+    "languages": one_of(vocabulary.LANGUAGES),
+    "interests": one_of(vocabulary.INTERESTS),
+    "same_area_only": True,
+}
+
+
+class TestVocabulary(unittest.TestCase):
+    def test_every_major_belongs_to_one_faculty(self):
+        # Two faculties claiming the same major would make faculty_of depend
+        # on the order the dict happens to be written in.
+        seen: list[str] = []
+        for majors in vocabulary.MAJORS.values():
+            seen.extend(majors)
+        self.assertEqual(sorted(seen), sorted(set(seen)))
+
+    def test_all_majors_is_every_group_together(self):
+        self.assertEqual(len(vocabulary.ALL_MAJORS), sum(map(len, vocabulary.MAJORS.values())))
+
+    def test_faculty_of_finds_the_faculty(self):
+        for faculty, majors in vocabulary.MAJORS.items():
+            for major in majors:
+                with self.subTest(major=major):
+                    self.assertEqual(vocabulary.faculty_of(major), faculty)
+
+    def test_faculty_of_turns_down_an_unknown_major(self):
+        with self.assertRaisesRegex(ValueError, "Basket Weaving"):
+            vocabulary.faculty_of("Basket Weaving")
+
+    def test_english_is_not_a_listed_language(self):
+        # Everyone is taken to share English, so preferring it would rule
+        # nobody out.
+        self.assertNotIn("English", vocabulary.LANGUAGES)
+
+    def test_a_preference_is_either_hard_or_soft(self):
+        self.assertFalse(set(vocabulary.HARD_PREFERENCES) & set(vocabulary.SOFT_PREFERENCES))
+
+    def test_there_is_a_slot_for_every_day_and_block(self):
+        self.assertEqual(
+            len(vocabulary.SLOTS), len(vocabulary.DAYS) * len(vocabulary.BLOCKS)
+        )
+        self.assertIn("MON_MORNING", vocabulary.SLOTS)
+
+    def test_stating_no_preference_is_allowed(self):
+        # The default for the field, so this has to stay allowed.
+        self.assertIsNone(vocabulary.validate_preferences({}))
+
+    def test_every_key_in_the_schema_is_accepted(self):
+        # Adding a key to the schema without adding it here fails on the
+        # first assertion rather than going untested.
+        self.assertEqual(set(EVERY_PREFERENCE), set(vocabulary.PREFERENCE_KEYS))
+        self.assertIsNone(vocabulary.validate_preferences(EVERY_PREFERENCE))
+
+    def test_an_unknown_key_is_turned_down(self):
+        with self.assertRaisesRegex(ValueError, "star sign"):
+            vocabulary.validate_preferences({"star sign": frozenset({"Leo"})})
+
+    def test_a_value_outside_the_registry_is_turned_down(self):
+        with self.assertRaisesRegex(ValueError, "Klingon"):
+            vocabulary.validate_preferences({"languages": frozenset({"Klingon"})})
+
+    def test_an_empty_set_is_turned_down(self):
+        # Leaving the key out is the one way of saying there is no
+        # restriction. An empty set would otherwise read as either that or
+        # as ruling everybody out.
+        with self.assertRaisesRegex(ValueError, "genders"):
+            vocabulary.validate_preferences({"genders": frozenset()})
+
+    def test_a_set_is_needed_where_a_set_is_asked_for(self):
+        with self.assertRaisesRegex(ValueError, "genders"):
+            vocabulary.validate_preferences({"genders": "Female"})
+
+    def test_an_age_range_that_ends_before_it_starts_is_turned_down(self):
+        with self.assertRaisesRegex(ValueError, "age"):
+            vocabulary.validate_preferences({"age": (30, 20)})
+
+    def test_an_age_range_takes_two_whole_numbers(self):
+        # bool is a subclass of int, so True would otherwise be read as 1.
+        with self.assertRaisesRegex(ValueError, "age"):
+            vocabulary.validate_preferences({"age": (True, 24)})
+        with self.assertRaisesRegex(ValueError, "age"):
+            vocabulary.validate_preferences({"age": (19,)})
+
+    def test_same_area_only_takes_true_or_false(self):
+        with self.assertRaisesRegex(ValueError, "same_area_only"):
+            vocabulary.validate_preferences({"same_area_only": "yes"})
 
 
 class TestModels(unittest.TestCase):
@@ -91,6 +198,42 @@ class TestData(unittest.TestCase):
             data.generate_users(10, seed=1), data.generate_users(10, seed=1)
         )
 
+    def test_the_same_seed_gives_the_same_users_in_a_new_process(self):
+        # A set of strings iterates in an order that depends on hash
+        # randomisation, which changes between processes. Generating from one
+        # directly would break the seed without any single run noticing.
+        script = (
+            "from kebplayground import data;"
+            "print([(u.major, sorted(u.interests), sorted(u.preferences)) "
+            "for u in data.generate_users(5, seed=1)])"
+        )
+        runs = set()
+        for hash_seed in ("0", "1"):
+            finished = subprocess.run(
+                [sys.executable, "-c", script],
+                capture_output=True,
+                text=True,
+                cwd=Path(__file__).resolve().parent.parent,
+                env={**os.environ, "PYTHONHASHSEED": hash_seed},
+            )
+            self.assertEqual(finished.returncode, 0, finished.stderr)
+            runs.add(finished.stdout)
+        self.assertEqual(len(runs), 1)
+
+    def test_made_up_users_only_use_registered_values(self):
+        for user in data.generate_users(30, seed=1):
+            with self.subTest(user=user.id):
+                self.assertIn(user.faculty, vocabulary.FACULTIES)
+                self.assertIn(user.major, vocabulary.MAJORS[user.faculty])
+                self.assertIn(user.year, vocabulary.YEARS)
+                self.assertIn(user.mbti, vocabulary.MBTIS)
+                self.assertIn(user.gender, vocabulary.GENDERS)
+                self.assertIn(user.area, vocabulary.AREAS)
+                self.assertIn(user.mode, vocabulary.MODES)
+                self.assertEqual(user.languages - vocabulary.LANGUAGES, frozenset())
+                self.assertEqual(user.free_slots - vocabulary.SLOTS, frozenset())
+                self.assertEqual(user.interests - vocabulary.INTERESTS, frozenset())
+
     def test_saved_users_can_be_read_back(self):
         # The two functions are the only pair that has to agree on the CSV
         # format, so they are tested together.
@@ -99,6 +242,49 @@ class TestData(unittest.TestCase):
             data.save_users(USERS, path)
             self.assertEqual(data.load_users(path), USERS)
 
+    def test_made_up_preferences_are_ones_the_schema_allows(self):
+        for user in data.generate_users(50, seed=1):
+            with self.subTest(user=user.id):
+                self.assertIsNone(vocabulary.validate_preferences(user.preferences))
+
+    def test_made_up_users_range_from_no_preferences_to_several(self):
+        # A run where everybody takes anyone would never reach the ban rules,
+        # and one where everybody is specific would ban almost every pair.
+        stated = [len(user.preferences) for user in data.generate_users(200, seed=1)]
+        self.assertEqual(min(stated), 0)
+        self.assertGreaterEqual(max(stated), 4)
+
+    def test_every_preference_in_the_schema_can_be_made_up(self):
+        # A key added to the schema and not to data.py would never appear in
+        # a made up user, so nothing downstream would ever meet it.
+        buildable = set(data._PREFERENCE_VALUES) | {vocabulary.AGE, vocabulary.SAME_AREA_ONLY}
+        self.assertEqual(buildable, set(vocabulary.PREFERENCE_KEYS))
+
+    def test_preferences_survive_being_saved_and_read_back(self):
+        # JSON has no set and no pair, so the column has to rebuild both. A
+        # user whose preferences come back as lists is not the user that was
+        # saved, and every module compares users by value.
+        picky = make_user("p", preferences=EVERY_PREFERENCE)
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "users.csv"
+            data.save_users([picky], path)
+            self.assertEqual(data.load_users(path), [picky])
+
+    def test_a_preference_in_the_file_is_checked_on_the_way_in(self):
+        # A file is the one way a preference arrives without going through
+        # the code that built it, so it is the one place worth checking.
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "users.csv"
+            data.save_users([make_user("p")], path)
+            rows = list(csv.DictReader(path.open(encoding="utf-8")))
+            rows[0]["preferences"] = '{"languages": ["Klingon"]}'
+            with path.open("w", encoding="utf-8", newline="") as f:
+                writer = csv.DictWriter(f, fieldnames=data.REQUIRED_FIELDS)
+                writer.writeheader()
+                writer.writerows(rows)
+            with self.assertRaisesRegex(ValueError, "Klingon"):
+                data.load_users(path)
+
     def test_a_missing_column_is_reported(self):
         # The error names the column, rather than the run failing later in
         # a module that has nothing to do with the file.
@@ -106,8 +292,8 @@ class TestData(unittest.TestCase):
             path = Path(tmp) / "users.csv"
             # Omit exactly one required column so the failure is deterministic.
             path.write_text(
-                "id,major,year,age,mbti,languages,gender,proximity_km,free_slots,interests,mode\n"
-                "a,CS,2,20,INTJ,en,f,2.0,MON-09,chess,study buddy\n"
+                "id,major,year,age,mbti,languages,gender,area,free_slots,interests,mode\n"
+                "a,Law,2,20,INTJ,Korean,Female,Central,MON_MORNING,Chess,study buddy\n"
             )
             with self.assertRaisesRegex((KeyError, ValueError), r"\bfaculty\b"):
                 data.load_users(path)
@@ -133,7 +319,7 @@ class TestFeatures(unittest.TestCase):
         self.assertEqual(features.timetable_overlap(ALICE, CHARLIE), 0.0)
 
     def test_interest_similarity_is_shared_interests_over_all_interests(self):
-        # chess is shared, hiking is not.
+        # Chess is shared, Hiking is not.
         self.assertAlmostEqual(features.interest_similarity(ALICE, BOB), 0.5)
 
     def test_major_similarity_rewards_the_same_subject(self):
@@ -143,16 +329,48 @@ class TestFeatures(unittest.TestCase):
             features.major_similarity(ALICE, BOB),
         )
 
-    def test_language_similarity_needs_one_shared_language(self):
-        self.assertEqual(features.language_similarity(ALICE, BOB), 1.0)
-        self.assertEqual(features.language_similarity(ALICE, CHARLIE), 0.0)
+    def test_each_shared_language_scores_higher_than_the_last(self):
+        spoken = ["Korean", "Mandarin", "Japanese"]
+        polyglot = make_user("p", languages=frozenset(spoken))
+        # Nothing listed in common, then one shared language, then two, then
+        # three. The first is English on its own.
+        climbing = [
+            features.language_similarity(
+                polyglot, make_user("q", languages=frozenset(spoken[:shared]))
+            )
+            for shared in range(len(spoken) + 1)
+        ]
+        self.assertEqual(climbing, sorted(climbing))
+        self.assertEqual(len(set(climbing)), len(climbing))
+        self.assertEqual(climbing[-1], 1.0)
 
-    def test_closer_commutes_score_higher(self):
-        # The cut-off distance is a free choice, so only the direction is
-        # checked here.
-        near = features.proximity_similarity(ALICE, BOB)
-        far = features.proximity_similarity(ALICE, CHARLIE)
-        self.assertGreater(near, far)
+    def test_sharing_no_listed_language_still_scores_above_zero(self):
+        # vocabulary.LANGUAGES leaves English out because everyone is taken
+        # to speak it, so two users with nothing listed in common can still
+        # talk to each other.
+        both_ways = features.language_similarity(ALICE, CHARLIE)
+        self.assertGreater(both_ways, 0.0)
+        self.assertLess(both_ways, features.language_similarity(ALICE, BOB))
+
+    def test_a_long_shared_list_cannot_beat_the_top_of_the_range(self):
+        many = frozenset(sorted(vocabulary.LANGUAGES)[:8])
+        both = make_user("m", languages=many), make_user("n", languages=many)
+        self.assertEqual(features.language_similarity(*both), 1.0)
+
+    def test_every_faculty_has_a_teachiness_score(self):
+        # A faculty missing here makes major_similarity raise on anyone
+        # studying in it, which only shows up once users are made up.
+        self.assertEqual(set(features.FACULTY_TECHINESS), vocabulary.FACULTIES)
+
+    def test_measuring_made_up_users_stays_between_zero_and_one(self):
+        # The three users written out above cannot catch a value data.py
+        # produces that features.py does not know about.
+        users = data.generate_users(15, seed=1)
+        for x, y in itertools.combinations(users, 2):
+            for name, value in features.measure(x, y).items():
+                with self.subTest(feature=name, a=x.id, b=y.id):
+                    self.assertGreaterEqual(value, 0.0)
+                    self.assertLessEqual(value, 1.0)
 
     def test_closer_ages_score_higher(self):
         self.assertGreater(
@@ -164,28 +382,131 @@ class TestFeatures(unittest.TestCase):
         self.assertEqual(set(features.measure(ALICE, BOB)), set(features.FEATURES))
 
 
-class TestConstraints(unittest.TestCase):
-    def test_a_user_cannot_be_matched_with_themselves(self):
-        self.assertFalse(constraints.is_allowed(ALICE, ALICE))
+# One soft preference of each kind that ALICE does not meet, worked out from
+# the registry rather than written down, so it stays unmet whatever is added
+# to vocabulary.py later.
+UNMET_SOFT_PREFERENCES: dict[str, object] = {
+    "majors": one_of(vocabulary.ALL_MAJORS - {ALICE.major}),
+    "faculties": one_of(vocabulary.FACULTIES - {ALICE.faculty}),
+    "years": one_of(vocabulary.YEARS - {ALICE.year}),
+    "mbti": one_of(vocabulary.MBTIS - {ALICE.mbti}),
+    "languages": one_of(vocabulary.LANGUAGES - ALICE.languages),
+    "interests": one_of(vocabulary.INTERESTS - ALICE.interests),
+    # Held against a user living somewhere other than ALICE does.
+    "same_area_only": True,
+}
 
-    def test_two_different_modes_are_banned(self):
-        self.assertFalse(constraints.is_allowed(ALICE, CHARLIE))
+
+class TestConstraints(unittest.TestCase):
+    # Each test below changes one thing about a pair that would otherwise be
+    # allowed. A rule that is missing from is_allowed then fails its own
+    # test, rather than being covered by whichever other rule the same pair
+    # happens to break.
 
     def test_a_sensible_pair_is_allowed(self):
         self.assertTrue(constraints.is_allowed(ALICE, BOB))
 
-    def test_allow_table_covers_every_pair_once(self):
+    def test_a_user_cannot_be_matched_with_themselves(self):
+        self.assertFalse(constraints.is_allowed(ALICE, ALICE))
+
+    def test_two_users_with_the_same_details_are_still_two_users(self):
+        # The rule is about the id. Two users who happen to agree on every
+        # other field are a real pair, and a good one.
+        twin = make_user("d")
+        self.assertTrue(constraints.is_allowed(ALICE, twin))
+
+    def test_the_same_id_is_the_same_user_however_the_details_differ(self):
+        # A file holding one id twice is how this arrives. Comparing whole
+        # users instead of ids would let the pair through, since the two
+        # differ on everything except the one field that matters.
+        same_id = make_user("a", age=30, mbti="ENFP", area="South")
+        self.assertFalse(constraints.is_allowed(ALICE, same_id))
+
+    def test_two_different_modes_are_banned(self):
+        lunch = make_user("d", mode="lunch mate")
+        self.assertFalse(constraints.is_allowed(ALICE, lunch))
+
+    def test_sharing_no_free_slot_is_banned(self):
+        busy = make_user("d", free_slots=frozenset({"FRI_EVENING"}))
+        self.assertFalse(constraints.is_allowed(ALICE, busy))
+
+    def test_a_gender_preference_rules_the_other_out(self):
+        picky = make_user("d", preferences={"genders": frozenset({"Non-binary"})})
+        self.assertFalse(constraints.is_allowed(picky, ALICE))
+
+    def test_a_gender_preference_holds_whichever_way_round_the_pair_comes(self):
+        # A rule read off the first user only would pass the test above and
+        # let this one through.
+        picky = make_user("d", preferences={"genders": frozenset({"Non-binary"})})
+        self.assertFalse(constraints.is_allowed(ALICE, picky))
+
+    def test_an_age_preference_rules_the_other_out(self):
+        picky = make_user("d", preferences={"age": (25, 30)})
+        self.assertFalse(constraints.is_allowed(picky, ALICE))
+
+    def test_an_age_preference_holds_whichever_way_round_the_pair_comes(self):
+        picky = make_user("d", preferences={"age": (25, 30)})
+        self.assertFalse(constraints.is_allowed(ALICE, picky))
+
+    def test_the_ends_of_an_age_range_are_included(self):
+        exact = make_user("d", preferences={"age": (ALICE.age, ALICE.age)})
+        self.assertTrue(constraints.is_allowed(exact, ALICE))
+
+    def test_a_preference_that_is_met_allows_the_pair(self):
+        # Stating a preference bans nobody on its own.
+        happy = make_user(
+            "d", preferences={"genders": frozenset({ALICE.gender}), "age": (18, 25)}
+        )
+        self.assertTrue(constraints.is_allowed(happy, ALICE))
+
+    def test_a_soft_preference_never_bans_a_pair(self):
+        # The soft keys move the score in scoring.py. Reading them here would
+        # ban pairs that are a worse match rather than an impossible one.
+        self.assertEqual(set(UNMET_SOFT_PREFERENCES), set(vocabulary.SOFT_PREFERENCES))
+        for key, value in UNMET_SOFT_PREFERENCES.items():
+            with self.subTest(preference=key):
+                fussy = make_user("d", area="South", preferences={key: value})
+                self.assertTrue(constraints.is_allowed(fussy, ALICE))
+
+    def test_the_allow_table_covers_every_pair_once(self):
         table = constraints.build_allow_table(USERS)
         self.assertEqual(len(table), 3)  # ab, ac, bc
         self.assertTrue(table[("a", "b")])
         self.assertFalse(table[("a", "c")])
+        self.assertFalse(table[("b", "c")])
 
-    def test_allow_table_never_pairs_a_user_with_themselves(self):
+    def test_the_allow_table_holds_one_entry_for_every_pair(self):
+        users = data.generate_users(12, seed=1)
+        self.assertEqual(len(constraints.build_allow_table(users)), 12 * 11 // 2)
+
+    def test_the_allow_table_never_pairs_a_user_with_themselves(self):
         table = constraints.build_allow_table(USERS)
         self.assertFalse([key for key in table if key[0] == key[1]])
 
+    def test_the_allow_table_is_keyed_the_way_pair_key_is(self):
+        # Everything reading H looks a pair up through pair_key, so a table
+        # keyed any other way cannot be read at all.
+        table = constraints.build_allow_table(USERS)
+        for x, y in itertools.combinations(USERS, 2):
+            with self.subTest(pair=(x.id, y.id)):
+                self.assertIn(pair_key(y, x), table)
+
+    def test_the_allow_table_agrees_with_is_allowed(self):
+        # The table is the only version anything downstream sees, so the two
+        # going out of step would be invisible until a banned pair matched.
+        users = data.generate_users(12, seed=1)
+        table = constraints.build_allow_table(users)
+        for x, y in itertools.combinations(users, 2):
+            with self.subTest(pair=(x.id, y.id)):
+                self.assertEqual(table[pair_key(x, y)], constraints.is_allowed(x, y))
+
 
 class TestScoring(unittest.TestCase):
+    def test_every_mode_on_offer_has_weights(self):
+        # cli.py builds its --mode choices out of WEIGHTS, so a mode that is
+        # missing here cannot be asked for at all.
+        self.assertEqual(set(scoring.WEIGHTS), vocabulary.MODES)
+
     def test_each_mode_gives_a_weight_to_every_measurement(self):
         for mode, weights in scoring.WEIGHTS.items():
             with self.subTest(mode=mode):
