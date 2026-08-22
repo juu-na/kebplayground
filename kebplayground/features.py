@@ -13,22 +13,6 @@ it possible for scoring.py to weigh one measurement against another.
 
 from .models import User
 
-def timetable_overlap(a: User, b: User) -> float:
-    """How much of their free time the two users share.
-
-    To implement: count the slots both users have free, then divide by the
-    count of slots either of them has free.
-
-    If neither user has any free slot, return 0.0 instead of dividing by
-    zero.
-    """
-    shared_free = a.free_slots & b.free_slots
-    total_free = a.free_slots | b.free_slots
-    if not shared_free:
-        return 0.0
-    return len(shared_free)/len(total_free)
-
-
 FACULTY_WEIGHT = 0.8
 MAJOR_WEIGHT = 0.2
 
@@ -135,17 +119,129 @@ def mbti_similarity(a: User, b: User) -> float:
     score /= 5
     return score
 
+def year_similarity(a: User, b: User) -> float:
+    """How close the two are in their degree.
+
+    The year above or below is close enough to have something in common.
+    Any further apart and they are not really at the same point.
+    """
+    difference = abs(a.year - b.year)
+    if difference == 0:
+        return 1.0
+    if difference == 1:
+        return 0.5
+    return 0.0
+
+
+def area_similarity(a: User, b: User) -> float:
+    """Whether the two live in the same part of Auckland.
+
+    Only ever read when somebody asked for it. view leaves it out otherwise,
+    because where a person lives says nothing about whether they get on.
+    """
+    return 1.0 if a.area == b.area else 0.0
+
+
 # Every measurement, listed by the name used in the score breakdown and in
 # the weights in scoring.py.
 # Adding a function to this list makes it apply to every mode at once.
 FEATURES = {
-    "timetable": timetable_overlap,
     "major": major_similarity,
     "interests": interest_similarity,
     "languages": language_similarity,
     "age": age_similarity,
-    "mbti": mbti_similarity
+    "mbti": mbti_similarity,
+    "year": year_similarity,
+    "area": area_similarity,
 }
+
+# The measurement that is only scored when somebody asked for it.
+AREA = "area"
+
+# Which measurement each stated preference speaks for. Two of them speak for
+# the same one, and then both have to be satisfied.
+PREFERENCE_FEATURE = {
+    "majors": "major",
+    "faculties": "major",
+    "mbti": "mbti",
+    "languages": "languages",
+    "interests": "interests",
+    "years": "year",
+    "same_area_only": AREA,
+}
+
+
+def _stated(key: str, preferences: dict[str, object]) -> bool:
+    """Whether the user actually asked for something under this key.
+
+    same_area_only set to False says the same as leaving it out, so it does
+    not count as asking.
+    """
+    if key not in preferences:
+        return False
+    if key == "same_area_only":
+        return preferences[key] is True
+    return True
+
+
+def _met(key: str, a: User, b: User) -> bool:
+    """Whether b satisfies what a asked for under one key."""
+    wanted = a.preferences[key]
+    if key == "majors":
+        return b.major in wanted
+    if key == "faculties":
+        return b.faculty in wanted
+    if key == "mbti":
+        return b.mbti in wanted
+    if key == "languages":
+        return bool(b.languages & wanted)
+    if key == "interests":
+        return bool(b.interests & wanted)
+    if key == "years":
+        return b.year in wanted
+    if key == "same_area_only":
+        return a.area == b.area
+    raise ValueError(f"no rule for the preference: {key}")
+
+
+def _bumped(name: str, a: User, b: User) -> bool:
+    """Whether a asked for something about this measurement and b meets it.
+
+    majors and faculties both speak for major, so when a stated both, b has
+    to satisfy both to earn the bump.
+    """
+    asked = [
+        key
+        for key, feature in PREFERENCE_FEATURE.items()
+        if feature == name and _stated(key, a.preferences)
+    ]
+    return bool(asked) and all(_met(key, a, b) for key in asked)
+
+
+def view(a: User, b: User) -> dict[str, float]:
+    """How a sees b, one number per measurement.
+
+    A stated preference lifts its measurement to 1.0 when b satisfies it.
+    When b does not, the measurement falls back to what it would have scored
+    anyway, so asking for something can only ever help the person asking.
+
+    Area is the one exception. Living in the same part of town says nothing
+    about whether two people get on, so it is left out entirely unless a
+    asked for it and b is there. scoring.py divides by the weights of
+    whatever came back, so leaving it out costs nobody anything.
+
+    This is the function that makes a pair's two directions differ.
+    """
+    seen = {}
+    for name, rule in FEATURES.items():
+        if name == AREA:
+            continue
+        seen[name] = 1.0 if _bumped(name, a, b) else rule(a, b)
+
+    if _bumped(AREA, a, b):
+        seen[AREA] = 1.0
+
+    return seen
 
 
 def measure(a: User, b: User) -> dict[str, float]:
