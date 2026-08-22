@@ -124,6 +124,17 @@ def age_similarity(a: User, b: User) -> float:
         score = (10 - difference)/10
         return score
 
+def mbti_similarity(a: User, b: User) -> float:
+    """Score MBTI compatibility from 0.0 (worst) to 1.0 (best)."""
+    a, b = a.mbti.upper(), b.mbti.upper()
+    score = 0
+    score += 2 if a[1] == b[1] else 0   # S/N: same is best (weighted x2, most important)
+    score += 1 if a[0] != b[0] else 0   # E/I: opposite is best
+    score += 1 if a[2] == b[2] else 0   # T/F: same is best
+    score += 1 if a[3] != b[3] else 0   # J/P: opposite is best
+    score /= 5
+    return score
+
 
 # Every measurement, listed by the name used in the score breakdown and in
 # the weights in scoring.py.
@@ -134,6 +145,7 @@ FEATURES = {
     "interests": interest_similarity,
     "languages": language_similarity,
     "age": age_similarity,
+    "mbti": mbti_similarity,
 }
 
 
@@ -152,3 +164,5 @@ def measure(a: User, b: User) -> dict[str, float]:
     for features, fn in FEATURES.items():
         output[features] = fn(a, b)
     return output
+
+
