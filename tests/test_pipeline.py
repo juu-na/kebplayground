@@ -41,26 +41,26 @@ def make_user(uid: str, **overrides: object) -> User:
         "languages": frozenset({"Korean"}),
         "gender": "Female",
         "area": "Central",
-        "free_slots": frozenset({"MON_MORNING", "MON_AFTERNOON"}),
         "interests": frozenset({"Chess", "Hiking"}),
-        "mode": "study buddy",
+        "modes": frozenset({"friendship"}),
         "preferences": {},
+        "status": "waiting",
     }
     fields.update(overrides)
     return User(**fields)  # type: ignore[arg-type]
 
 
 # Three users, covering the cases the pipeline has to tell apart.
-# ALICE and BOB could sensibly be matched. CHARLIE wants a different mode, is
-# free at a different time, and studies at the other end of the teachiness
-# scale, so the two of them are the furthest apart the registry allows.
+# ALICE and BOB share friendship and could sensibly be matched. CHARLIE only
+# wants a date, so shares nothing with ALICE, and studies at the other end of
+# the teachiness scale.
 ALICE = make_user("a")
 BOB = make_user(
     "b",
     age=21,
     languages=frozenset({"Korean", "Mandarin"}),
-    free_slots=frozenset({"MON_AFTERNOON", "MON_EVENING"}),
     interests=frozenset({"Chess"}),
+    modes=frozenset({"friendship", "date"}),
 )
 CHARLIE = make_user(
     "c",
@@ -69,9 +69,8 @@ CHARLIE = make_user(
     age=30,
     languages=frozenset({"Mandarin"}),
     area="South",
-    free_slots=frozenset({"FRI_EVENING"}),
     interests=frozenset({"Tennis"}),
-    mode="lunch mate",
+    modes=frozenset({"date"}),
 )
 USERS = [ALICE, BOB, CHARLIE]
 
@@ -126,12 +125,6 @@ class TestVocabulary(unittest.TestCase):
 
     def test_a_preference_is_either_hard_or_soft(self):
         self.assertFalse(set(vocabulary.HARD_PREFERENCES) & set(vocabulary.SOFT_PREFERENCES))
-
-    def test_there_is_a_slot_for_every_day_and_block(self):
-        self.assertEqual(
-            len(vocabulary.SLOTS), len(vocabulary.DAYS) * len(vocabulary.BLOCKS)
-        )
-        self.assertIn("MON_MORNING", vocabulary.SLOTS)
 
     def test_stating_no_preference_is_allowed(self):
         # The default for the field, so this has to stay allowed.
@@ -230,9 +223,10 @@ class TestData(unittest.TestCase):
                 self.assertIn(user.mbti, vocabulary.MBTIS)
                 self.assertIn(user.gender, vocabulary.GENDERS)
                 self.assertIn(user.area, vocabulary.AREAS)
-                self.assertIn(user.mode, vocabulary.MODES)
+                self.assertIn(user.status, vocabulary.STATUSES)
+                self.assertTrue(user.modes, "a user has to want something")
+                self.assertEqual(user.modes - vocabulary.MODES, frozenset())
                 self.assertEqual(user.languages - vocabulary.LANGUAGES, frozenset())
-                self.assertEqual(user.free_slots - vocabulary.SLOTS, frozenset())
                 self.assertEqual(user.interests - vocabulary.INTERESTS, frozenset())
 
     def test_saved_users_can_be_read_back(self):
@@ -280,7 +274,7 @@ class TestData(unittest.TestCase):
             rows = list(csv.DictReader(path.open(encoding="utf-8")))
             rows[0]["preferences"] = '{"languages": ["Klingon"]}'
             with path.open("w", encoding="utf-8", newline="") as f:
-                writer = csv.DictWriter(f, fieldnames=data.REQUIRED_FIELDS)
+                writer = csv.DictWriter(f, fieldnames=data.WRITTEN_FIELDS)
                 writer.writeheader()
                 writer.writerows(rows)
             with self.assertRaisesRegex(ValueError, "Klingon"):
@@ -311,13 +305,6 @@ class TestFeatures(unittest.TestCase):
                     with self.subTest(feature=name, a=x.id, b=y.id):
                         self.assertGreaterEqual(fn(x, y), 0.0)
                         self.assertLessEqual(fn(x, y), 1.0)
-
-    def test_timetable_overlap_is_shared_slots_over_all_slots(self):
-        # One slot is shared, and there are three slots in total.
-        self.assertAlmostEqual(features.timetable_overlap(ALICE, BOB), 1 / 3)
-
-    def test_timetable_overlap_is_zero_when_no_slot_is_shared(self):
-        self.assertEqual(features.timetable_overlap(ALICE, CHARLIE), 0.0)
 
     def test_interest_similarity_is_shared_interests_over_all_interests(self):
         # Chess is shared, Hiking is not.
@@ -357,6 +344,60 @@ class TestFeatures(unittest.TestCase):
         many = frozenset(sorted(vocabulary.LANGUAGES)[:8])
         both = make_user("m", languages=many), make_user("n", languages=many)
         self.assertEqual(features.language_similarity(*both), 1.0)
+
+    def test_the_year_beside_yours_is_half_as_close_as_your_own(self):
+        same = features.year_similarity(make_user("x", year=2), make_user("y", year=2))
+        beside = features.year_similarity(make_user("x", year=2), make_user("y", year=3))
+        far = features.year_similarity(make_user("x", year=1), make_user("y", year=4))
+        self.assertEqual((same, beside, far), (1.0, 0.5, 0.0))
+
+    def test_area_is_left_out_unless_somebody_asked_for_it(self):
+        # Where a person lives says nothing about whether they get on, so it
+        # only counts when it was asked for and met.
+        asked = make_user("x", area="South", preferences={"same_area_only": True})
+        same = make_user("y", area="South")
+        elsewhere = make_user("z", area="North")
+        self.assertEqual(features.view(asked, same)["area"], 1.0)
+        self.assertNotIn("area", features.view(asked, elsewhere))
+        self.assertNotIn("area", features.view(same, asked))
+
+    def test_asking_for_the_same_area_and_missing_costs_nothing(self):
+        # The whole point of leaving it out rather than scoring it 0.0.
+        asked = make_user("x", area="South", preferences={"same_area_only": True})
+        silent = make_user("y", area="South", preferences={})
+        elsewhere = make_user("z", area="North")
+        self.assertEqual(
+            scoring.score_pair(asked, elsewhere)[0],
+            scoring.score_pair(silent, elsewhere)[0],
+        )
+
+    def test_same_area_only_set_to_false_is_not_asking(self):
+        declined = make_user("x", area="South", preferences={"same_area_only": False})
+        self.assertNotIn("area", features.view(declined, make_user("y", area="South")))
+
+    def test_a_missed_preference_falls_back_rather_than_being_punished(self):
+        # The bump only ever lifts. Missing it leaves the usual rule alone.
+        picky = make_user("x", preferences={"mbti": frozenset({"ENFP"})})
+        plain = make_user("y")
+        self.assertEqual(
+            features.view(picky, plain)["mbti"], features.view(plain, picky)["mbti"]
+        )
+
+    def test_asking_about_major_and_faculty_needs_both(self):
+        # majors and faculties both speak for the same measurement, so
+        # satisfying one of them is not enough to earn the lift.
+        picky = make_user(
+            "x",
+            preferences={
+                "majors": frozenset({"Law"}),
+                "faculties": frozenset({"Auckland Law School"}),
+            },
+        )
+        both = make_user("y", major="Law", faculty="Auckland Law School")
+        # Deliberately inconsistent: the right major in the wrong faculty.
+        half = make_user("z", major="Law", faculty="Faculty of Science")
+        self.assertEqual(features.view(picky, both)["major"], 1.0)
+        self.assertLess(features.view(picky, half)["major"], 1.0)
 
     def test_every_faculty_has_a_teachiness_score(self):
         # A faculty missing here makes major_similarity raise on anyone
@@ -456,13 +497,13 @@ class TestConstraints(unittest.TestCase):
         same_id = make_user("a", age=30, mbti="ENFP", area="South")
         self.assertFalse(constraints.is_allowed(ALICE, same_id))
 
-    def test_two_different_modes_are_banned(self):
-        lunch = make_user("d", mode="lunch mate")
-        self.assertFalse(constraints.is_allowed(ALICE, lunch))
+    def test_wanting_no_connection_in_common_is_banned(self):
+        dater = make_user("d", modes=frozenset({"date"}))
+        self.assertFalse(constraints.is_allowed(ALICE, dater))
 
-    def test_sharing_no_free_slot_is_banned(self):
-        busy = make_user("d", free_slots=frozenset({"FRI_EVENING"}))
-        self.assertFalse(constraints.is_allowed(ALICE, busy))
+    def test_one_shared_connection_is_enough(self):
+        # BOB is open to both, ALICE only to friendship.
+        self.assertTrue(constraints.is_allowed(ALICE, BOB))
 
     def test_a_gender_preference_rules_the_other_out(self):
         picky = make_user("d", preferences={"genders": frozenset({"Non-binary"})})
@@ -510,9 +551,9 @@ class TestConstraints(unittest.TestCase):
     def test_the_allow_table_covers_every_pair_once(self):
         table = constraints.build_allow_table(USERS)
         self.assertEqual(len(table), 3)  # ab, ac, bc
-        self.assertTrue(table[("a", "b")])
-        self.assertFalse(table[("a", "c")])
-        self.assertFalse(table[("b", "c")])
+        self.assertTrue(table[("a", "b")])   # both want friendship
+        self.assertFalse(table[("a", "c")])  # friendship against date
+        self.assertTrue(table[("b", "c")])   # both want a date
 
     def test_the_allow_table_holds_one_entry_for_every_pair(self):
         users = data.generate_users(12, seed=1)
@@ -557,33 +598,54 @@ class TestScoring(unittest.TestCase):
             with self.subTest(mode=mode):
                 self.assertAlmostEqual(sum(weights.values()), 1.0)
 
-    def test_score_pair_returns_the_score_and_the_measurements(self):
-        score, breakdown = scoring.score_pair(ALICE, BOB, "study buddy")
+    def test_score_pair_returns_the_score_the_mode_and_the_measurements(self):
+        score, mode, breakdown = scoring.score_pair(ALICE, BOB)
         self.assertGreaterEqual(score, 0.0)
         self.assertLessEqual(score, 1.0)
-        self.assertEqual(set(breakdown), set(features.FEATURES))
+        self.assertIn(mode, ALICE.modes & BOB.modes)
+        # Area is only measured when somebody asked for it, so it may be out.
+        self.assertLessEqual(set(breakdown), set(features.FEATURES))
 
-    def test_an_unknown_mode_raises(self):
-        # Falling back to default weights would turn a typo in the command
-        # line argument into a run that looks like it worked.
-        # A plain Exception is not accepted here. It would also catch the
-        # NotImplementedError of the unwritten function and pass for nothing.
-        with self.assertRaises((KeyError, ValueError)):
-            scoring.score_pair(ALICE, BOB, "not a real mode")
+    def test_score_pair_turns_down_a_pair_wanting_nothing_in_common(self):
+        # H should have banned it long before here.
+        with self.assertRaises(ValueError):
+            scoring.score_pair(ALICE, make_user("d", modes=frozenset({"date"})))
 
-    def test_the_mode_changes_the_score(self):
-        # ALICE and BOB study the same subject but share little free time, so
-        # study buddy is to rate them higher than lunch mate does.
-        study, _ = scoring.score_pair(ALICE, BOB, "study buddy")
-        lunch, _ = scoring.score_pair(ALICE, BOB, "lunch mate")
-        self.assertGreater(study, lunch)
+    def test_a_pair_is_scored_by_whichever_side_likes_it_less(self):
+        # picky gets INTJ lifted to 1.0 looking at plain. plain asked for
+        # nothing, so their view is the usual rule, and that is the one the
+        # pair keeps. Stating the preference changes the pair not at all.
+        picky = make_user("d", preferences={"mbti": frozenset({"INTJ"})})
+        plain = make_user("e")
+        lifted = scoring.score_pair(picky, plain)[0]
+        neither = scoring.score_pair(plain, make_user("f"))[0]
+        self.assertEqual(lifted, neither)
+
+    def test_a_preference_lifts_the_side_that_asked(self):
+        # The same bump seen from the asking side alone, where it does show.
+        picky = make_user("d", preferences={"mbti": frozenset({"INTJ"})})
+        plain = make_user("e")
+        self.assertEqual(features.view(picky, plain)["mbti"], 1.0)
+        self.assertLess(features.view(plain, picky)["mbti"], 1.0)
 
     def test_score_table_holds_only_the_allowed_pairs(self):
         # A banned pair cannot be matched whatever it scores, so scoring it
         # would be wasted work.
         allowed = {("a", "b"): True, ("a", "c"): False, ("b", "c"): False}
-        table = scoring.build_score_table(USERS, "study buddy", allowed)
+        table, modes, live = scoring.build_score_table(USERS, allowed, floor=0.0)
         self.assertEqual(set(table), {("a", "b")})
+        self.assertEqual(set(modes), {("a", "b")})
+
+    def test_a_pair_under_the_floor_is_left_out_of_both_tables(self):
+        allowed = {("a", "b"): True, ("a", "c"): False, ("b", "c"): False}
+        table, _, live = scoring.build_score_table(USERS, allowed, floor=1.01)
+        self.assertEqual(table, {})
+        self.assertFalse(live[("a", "b")])
+
+    def test_the_table_that_went_in_is_left_alone(self):
+        allowed = {("a", "b"): True, ("a", "c"): False, ("b", "c"): False}
+        scoring.build_score_table(USERS, allowed, floor=1.01)
+        self.assertTrue(allowed[("a", "b")], "build_score_table edited its argument")
 
 
 # Small tables written out by hand. The algorithms read S and H and nothing
@@ -621,16 +683,32 @@ class TestMetrics(unittest.TestCase):
     def test_unmatched_count(self):
         self.assertEqual(scoring.unmatched_count(USERS, [("a", "b")]), 1)
 
-    def test_evaluate_returns_all_three_numbers(self):
-        result = scoring.evaluate(USERS, [("a", "b")], SCORES, ALLOWED)
-        self.assertEqual(set(result), {"average", "worst_off", "unmatched"})
+    def test_evaluate_reports_per_mode_and_lists_who_is_waiting(self):
+        modes = {("a", "b"): "friendship"}
+        result = scoring.evaluate(USERS, [("a", "b")], SCORES, modes, ALLOWED)
+        self.assertEqual(set(result), {"modes", "waiting"})
+        self.assertEqual(set(result["modes"]), set(scoring.WEIGHTS))
+        self.assertEqual(result["modes"]["friendship"]["pairs"], 1)
+        self.assertEqual(result["modes"]["date"]["pairs"], 0)
+        # Waiting is not a failure, so c is listed rather than counted against.
+        self.assertEqual(result["waiting"], ["c"])
+
+    def test_evaluate_turns_down_a_match_naming_a_stranger(self):
+        with self.assertRaisesRegex(ValueError, "ghost"):
+            scoring.unmatched_count(USERS, [("a", "ghost")])
 
 
-def made_up_tables(count: int = 30, seed: int = 2, mode: str = "study buddy"):
-    """Users, S and H, built the way cli.py builds them."""
+def made_up_tables(count: int = 30, seed: int = 2, floor: float = 0.0):
+    """Users, S and H, built the way cli.py builds them.
+
+    The floor defaults to nothing here, because a test about the matcher
+    wants a table with pairs in it rather than the handful that clear the
+    real floor.
+    """
     users = data.generate_users(count, seed=seed)
     allowed = constraints.build_allow_table(users)
-    return users, scoring.build_score_table(users, mode, allowed), allowed
+    scores, _, live = scoring.build_score_table(users, allowed, floor)
+    return users, scores, live
 
 
 class TestMatcher(unittest.TestCase):
@@ -694,24 +772,6 @@ class TestMatcher(unittest.TestCase):
         worst_fairest = min(FOUR[pair] for pair in matcher.fairest(FOUR, FOUR_ALLOWED))
         self.assertGreater(worst_fairest, worst_greedy)
 
-    def test_fairest_leaves_fewer_people_out(self):
-        # The reason it earns a place next to greedy. Most pairs are banned,
-        # so serving the hardest to place user first spends the few allowed
-        # partners on the people who have no others.
-        _, scores, allowed = made_up_tables(count=60)
-        self.assertGreater(
-            len(matcher.fairest(scores, allowed)), len(matcher.greedy(scores, allowed))
-        )
-
-    def test_cluster_keeps_groups_under_the_size_limit(self):
-        for group in matcher.cluster(SCORES, ALLOWED, max_size=2):
-            self.assertLessEqual(len(group), 2)
-
-    def test_cluster_puts_every_user_in_exactly_one_group(self):
-        groups = matcher.cluster(SCORES, ALLOWED, max_size=2)
-        members = [uid for group in groups for uid in group]
-        self.assertEqual(sorted(members), ["a", "b", "c"])
-
     def test_every_listed_algorithm_can_be_run(self):
         for name, fn in matcher.ALGORITHMS.items():
             with self.subTest(algo=name):
@@ -728,7 +788,7 @@ class TestMatcher(unittest.TestCase):
                 self.assertEqual(matches, fn(scores, allowed), "not the same twice")
                 # evaluate raises on a banned pair, so this is a second
                 # opinion on the matching being a legal one.
-                scoring.evaluate(users, matches, scores, allowed)
+                scoring.evaluate(users, matches, scores, {}, allowed)
 
     def test_nobody_wants_to_swap_on_made_up_users(self):
         # The property only holds by luck on three ids, so it is worth
@@ -736,20 +796,9 @@ class TestMatcher(unittest.TestCase):
         _, scores, allowed = made_up_tables()
         self.assert_nobody_wants_to_swap(matcher.greedy(scores, allowed), scores, allowed)
 
-    def test_cluster_puts_every_made_up_user_in_a_group(self):
-        users, scores, allowed = made_up_tables()
-        groups = matcher.cluster(scores, allowed, max_size=4)
-        members = [uid for group in groups for uid in group]
-        self.assertEqual(sorted(members), sorted(user.id for user in users))
-        for group in groups:
-            with self.subTest(group=group):
-                self.assertLessEqual(len(group), 4)
-
-
-class TestLLM(unittest.TestCase):
     def test_the_prompt_names_both_users(self):
         breakdown = {"major": 1.0, "timetable": 0.33}
-        prompt = llm.build_prompt(ALICE, BOB, 0.7, breakdown)
+        prompt = llm.build_prompt(ALICE, BOB, 0.7, "friendship", breakdown)
         self.assertIn("a", prompt)
         self.assertIn("b", prompt)
 
@@ -807,7 +856,7 @@ class TestLLM(unittest.TestCase):
         # A missing key is the normal state for anyone who has not set one
         # up, and it must not stop a run.
         with unittest.mock.patch.object(llm, "_api_key", return_value=None):
-            message = llm.explain(ALICE, BOB, 0.7, {"major": 1.0})
+            message = llm.explain(ALICE, BOB, 0.7, "friendship", {"major": 1.0})
         self.assertEqual(message, llm.plain_message({"major": 1.0}))
 
     def test_an_answer_is_kept_and_read_back(self):
@@ -815,11 +864,11 @@ class TestLLM(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             cache = Path(tmp) / "llm_cache.json"
             with unittest.mock.patch.object(llm, "_ask_the_model", return_value=saved):
-                first = llm.explain(ALICE, BOB, 0.7, {"major": 1.0}, cache=cache)
+                first = llm.explain(ALICE, BOB, 0.7, "friendship", {"major": 1.0}, cache=cache)
             # The model is not reachable the second time round. The answer
             # has to come out of the file.
             with unittest.mock.patch.object(llm, "_ask_the_model", return_value=None):
-                second = llm.explain(ALICE, BOB, 0.7, {"major": 1.0}, cache=cache)
+                second = llm.explain(ALICE, BOB, 0.7, "friendship", {"major": 1.0}, cache=cache)
         self.assertEqual(first, saved)
         self.assertEqual(second, saved)
 
@@ -830,7 +879,7 @@ class TestLLM(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             cache = Path(tmp) / ".cache" / "llm.json"
             with unittest.mock.patch.object(llm, "_ask_the_model", return_value=saved):
-                llm.explain(ALICE, BOB, 0.7, {"major": 1.0}, cache=cache)
+                llm.explain(ALICE, BOB, 0.7, "friendship", {"major": 1.0}, cache=cache)
             self.assertTrue(cache.exists())
 
     def test_a_plain_message_is_never_kept(self):
@@ -839,7 +888,7 @@ class TestLLM(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             cache = Path(tmp) / "llm_cache.json"
             with unittest.mock.patch.object(llm, "_ask_the_model", return_value=None):
-                llm.explain(ALICE, BOB, 0.7, {"major": 1.0}, cache=cache)
+                llm.explain(ALICE, BOB, 0.7, "friendship", {"major": 1.0}, cache=cache)
             self.assertFalse(cache.exists())
 
 
@@ -847,20 +896,19 @@ class TestCLI(unittest.TestCase):
     def test_the_parser_is_built(self):
         self.assertIsInstance(build_parser(), argparse.ArgumentParser)
 
-    def test_the_parser_reads_the_mode_and_the_algorithm(self):
-        args = build_parser().parse_args(["--mode", "study buddy", "--algo", "greedy"])
-        self.assertEqual(args.mode, "study buddy")
-        self.assertEqual(args.algo, "greedy")
+    def test_the_parser_reads_the_floor(self):
+        self.assertEqual(build_parser().parse_args([]).min_score, scoring.MIN_MATCH_SCORE)
+        self.assertEqual(build_parser().parse_args(["--min-score", "0.4"]).min_score, 0.4)
 
     def test_seed_and_count_come_back_as_numbers(self):
-        args = build_parser().parse_args(["--mode", "study buddy", "--algo", "greedy", "--count", "50", "--seed", "7"])
+        args = build_parser().parse_args(["--count", "50", "--seed", "7"])
         self.assertEqual(args.count, 50)
         self.assertEqual(args.seed, 7)
 
     def test_explain_is_off_unless_asked_for(self):
         # The LLM call has to be asked for, so a demo cannot break on a
         # failed request.
-        self.assertFalse(build_parser().parse_args(["--mode", "study buddy", "--algo", "greedy"]).explain)
+        self.assertFalse(build_parser().parse_args([]).explain)
 
 
 if __name__ == "__main__":

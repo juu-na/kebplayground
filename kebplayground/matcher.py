@@ -4,13 +4,14 @@ These algorithms take S and H tables as inputs.
 This module never imports User, which allows testing the
 algorithms on a few made up ids instead of full user profiles.
 
-The first two put users into pairs and are meant to be compared against each
-other. They want different things: greedy takes the best pairs it can see,
-fairest looks after whoever is doing worst. The third puts users into groups
-instead, and is used for friend group mode.
+All three put users into pairs and are meant to be compared against each
+other. greedy takes the best pairs it can see. fairest looks after whoever is
+hardest to place. blossom works out the highest total there is.
 """
 
 import itertools
+
+import networkx
 
 from .models import AllowTable, Pair, ScoreTable, pair_key
 
@@ -18,9 +19,9 @@ from .models import AllowTable, Pair, ScoreTable, pair_key
 def _everyone(scores: ScoreTable, allowed: AllowTable) -> list[str]:
     """Every id either table mentions, in a fixed order.
 
-    Both tables are read because build_score_table leaves banned pairs out
-    of S. A user nobody is allowed to match with appears only in H, and
-    still needs a group of their own from cluster.
+    Both tables are read because build_score_table leaves banned and under
+    floor pairs out of S. Somebody nobody is allowed to match with appears
+    only in H, and still has to turn up on the waiting list.
     """
     return sorted({uid for pair in (*scores, *allowed) for uid in pair})
 
@@ -112,71 +113,82 @@ def fairest(scores: ScoreTable, allowed: AllowTable) -> list[Pair]:
         free = [uid for uid in free if uid not in (worst_off, partner)]
 
 
-def _worst_crossing_pair(
-    one: list[str],
-    other: list[str],
-    scores: ScoreTable,
-    allowed: AllowTable,
-) -> float | None:
-    """The lowest score across two groups, or None when they cannot join.
+def improve(scores: ScoreTable, allowed: AllowTable, matches: list[Pair]) -> list[Pair]:
+    """Repeatedly apply whichever single change raises the total most.
 
-    Only the pairs crossing between the two groups are looked at. The pairs
-    inside each group were checked when that group formed.
+    A change takes two people who are not together, puts them together, and
+    lets the partners they leave behind pair up with each other when that is
+    allowed. It stops when no change helps.
+
+    This is the part a single pass cannot do: undo an earlier decision.
     """
-    lowest = None
-    for uid in one:
-        for another in other:
-            pair = pair_key(uid, another)
-            if not _usable(pair, scores, allowed):
-                return None
-            if lowest is None or scores[pair] < lowest:
-                lowest = scores[pair]
-    return lowest
-
-
-def cluster(
-    scores: ScoreTable,
-    allowed: AllowTable,
-    max_size: int = 5,
-) -> list[list[str]]:
-    """Build friend groups by joining small groups into bigger ones.
-
-    Input: S, H, and the largest a group is allowed to get.
-    Output: a list of groups, each one a list of user ids.
-
-    When two groups are considered for joining, they are judged on their
-    worst pair, not their average pair. Using the average would let one
-    strong pairing drag in somebody who does not get on with anyone else in
-    the group.
-
-    Everyone ends up in exactly one group, including anyone who cannot be
-    joined to a single other person. They keep the group of one they started
-    with.
-    """
-    groups = [[uid] for uid in _everyone(scores, allowed)]
-
+    matches = list(matches)
     while True:
-        best_join = None
-        best_score = None
+        partner = {}
+        for x, y in matches:
+            partner[x] = y
+            partner[y] = x
 
-        for one, other in itertools.combinations(range(len(groups)), 2):
-            if len(groups[one]) + len(groups[other]) > max_size:
+        best, gain = None, 1e-12
+        for pair in scores:
+            if not allowed.get(pair):
                 continue
-            worst = _worst_crossing_pair(groups[one], groups[other], scores, allowed)
-            if worst is None:
+            x, y = pair
+            if partner.get(x) == y:
                 continue
-            if best_score is None or worst > best_score:
-                best_join, best_score = (one, other), worst
 
-        if best_join is None:
-            return groups
+            lost = sum(scores[pair_key(u, partner[u])] for u in (x, y) if u in partner)
+            spare = [partner[u] for u in (x, y) if u in partner and partner[u] not in (x, y)]
+            rejoin = None
+            regain = 0.0
+            if len(spare) == 2 and allowed.get(pair_key(*spare)):
+                rejoin = pair_key(*spare)
+                regain = scores[rejoin]
+            elif len(spare) == 2:
+                # Taking this pair would strand both of the people they left.
+                continue
 
-        one, other = best_join
-        groups[one] = sorted(groups[one] + groups[other])
-        del groups[other]
+            delta = scores[pair] + regain - lost
+            if delta > gain:
+                best, gain = (pair, spare, rejoin), delta
+
+        if best is None:
+            return matches
+
+        pair, spare, rejoin = best
+        dropped = set(pair) | set(spare)
+        matches = [match for match in matches if not dropped & set(match)]
+        matches.append(pair)
+        if rejoin:
+            matches.append(rejoin)
+
+
+def fairest_then_improve(scores: ScoreTable, allowed: AllowTable) -> list[Pair]:
+    """fairest to place everyone it can, then improve to buy the score back."""
+    return improve(scores, allowed, fairest(scores, allowed))
+
+
+def blossom(scores: ScoreTable, allowed: AllowTable) -> list[Pair]:
+    """The highest total there is, using Edmonds' algorithm from networkx.
+
+    maxcardinality stays False on purpose. True would force the most pairs it
+    can regardless of score, which is the goal this redesign moved away from.
+
+    networkx hands back its pairs in whatever order it likes, so they go
+    through pair_key and the list is sorted, to keep runs comparable.
+    """
+    graph = networkx.Graph()
+    graph.add_nodes_from(_everyone(scores, allowed))
+    for pair in scores:
+        if allowed.get(pair):
+            graph.add_edge(pair[0], pair[1], weight=scores[pair])
+
+    chosen = networkx.max_weight_matching(graph, maxcardinality=False)
+    return sorted(pair_key(x, y) for x, y in chosen)
 
 
 ALGORITHMS = {
     "greedy": greedy,
-    "fairest": fairest,
+    "fairest": fairest_then_improve,
+    "blossom": blossom,
 }

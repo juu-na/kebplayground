@@ -77,6 +77,8 @@ Rules:
 - Only use reasons that appear in the measurements you were given. Do not
   invent a shared trait, guess at something not in the data, or mention a
   measurement you were not handed.
+- Write for the connection named in the message. Never suggest a date to two
+  people who were matched on friendship.
 - Keep the tone warm and casual, like a friend making an introduction, not
   corporate or robotic.
 - If the user's purpose is to seek a romantic partner, write the message in
@@ -91,7 +93,8 @@ def describe(user: User) -> str:
     return (
         f"User {user.id}: {user.major} {user.faculty}, year {user.year}, "
         f"age {user.age}, languages {sorted(user.languages)}, "
-        f"interests {sorted(user.interests)}, looking for a {user.mode}"
+        f"interests {sorted(user.interests)}, area {user.area}, "
+        f"open to {' and '.join(sorted(user.modes))}"
     )
 
 
@@ -99,6 +102,7 @@ def build_prompt(
     a: User,
     b: User,
     score: float,
+    mode: str,
     breakdown: dict[str, float],
 ) -> str:
     """Turn one match into the message sent to the model.
@@ -122,6 +126,7 @@ def build_prompt(
     return (
         f"{usera}\n"
         f"{userb}\n\n"
+        f"Proposed connection: {mode}\n"
         f"Match score: {score:.2f}\n"
         f"Measurements:\n{measurement_lines}\n\n"
         f"The highest-scoring measurement is {top_name} ({top_value:.2f}). "
@@ -133,6 +138,7 @@ def explain(
     a: User,
     b: User,
     score: float,
+    mode: str,
     breakdown: dict[str, float],
     cache: Path | None = None,
 ) -> str:
@@ -158,7 +164,7 @@ def explain(
         if key in saved:
             return saved[key]
 
-    message = _ask_the_model(a, b, score, breakdown)
+    message = _ask_the_model(a, b, score, mode, breakdown)
     if message is None:
         # Nothing is cached here. A plain message is what gets written when
         # the model could not be reached, and caching it would keep handing
@@ -179,6 +185,7 @@ def _ask_the_model(
     a: User,
     b: User,
     score: float,
+    mode: str,
     breakdown: dict[str, float],
 ) -> str | None:
     """Ask the model for one message, or return None when it cannot be had.
@@ -198,7 +205,7 @@ def _ask_the_model(
         client = genai.Client(api_key=api_key)
         response = client.models.generate_content(
             model=MODEL,
-            contents=build_prompt(a, b, score, breakdown),
+            contents=build_prompt(a, b, score, mode, breakdown),
             config={"system_instruction": SYSTEM_PROMPT},
         )
         message = (response.text or "").strip()
@@ -235,12 +242,13 @@ LONGEST = 300
 # measurement it was handed, so naming one that is missing from the
 # breakdown means the model made the reason up.
 REASON_WORDS: dict[str, tuple[str, ...]] = {
-    "timetable": ("free time", "schedule", "timetable", "free hour"),
     "interests": ("interest", "hobby", "hobbies"),
     "languages": ("language",),
     "major": ("major", "subject", "study the same", "both study"),
     "age": ("age", "years old"),
     "mbti": ("mbti", "personality", "introvert", "extrovert"),
+    "year": ("year", "first year", "same year"),
+    "area": ("area", "nearby", "live close", "same part of town"),
 }
 
 

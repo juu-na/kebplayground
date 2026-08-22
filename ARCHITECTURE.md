@@ -27,11 +27,11 @@ Two tables are shared between the modules:
 
 ## Phase 1
 
-`models.py`: describes what a user looks like, covering features such as `id, major, faculty, year, age, MBTI, languages, gender, area, timetable, interests, preferences, mode`, etc.
-- `mode` is the kind of connection the user is after, one of lunch mate, study buddy, friend group, besties or campus couple
-- `area` is the part of Auckland the user lives in, read only to work out whether two users live in the same one
-- `preferences` is what the user will accept in the other person, listed in `vocabulary.py`, where gender and age rule a pair out and the rest only move the score
-- `timetable` is a typical week of free and busy slots, so shared free time can be worked out
+`models.py`: describes what a user looks like, covering features such as `id, major, faculty, year, age, MBTI, languages, gender, area, interests, preferences, modes, status`, etc.
+- `modes` is the kinds of connection the user is open to, one or both of friendship and date. A pair is only considered when they share one
+- `status` is where the user is up to. Only the waiting ones take part in a run
+- `area` is the part of Auckland the user lives in, only ever read when somebody asked for the same area
+- `preferences` is what the user is after in the other person, listed in `vocabulary.py`. Gender and age rule a pair out. The rest lift the measurement they speak for to full marks when the other person satisfies them, and change nothing when they do not, so asking for something can only ever help
 - will not be modified once written and confirmed, since every other module imports it
 
 `vocabulary.py`: the registered options a user can be described by, such as the faculties and the majors each one teaches, the languages, the interests and the areas.
@@ -46,7 +46,8 @@ Two tables are shared between the modules:
 
 `features.py`: measures how alike two users are, one feature at a time.
 - each measurement is a function that takes two users and returns a number from 0 to 1 (0% to 100%)
-- features worth measuring include shared free time, same (or similar) major, shared interests, languages and how close in age they are
+- features worth measuring include same (or similar) major, shared interests, languages, personality, how close in age and year they are, and, when asked for, living in the same area
+- `view(a, b)` is how a sees b, which is not the same as how b sees a, because a's stated preferences lift the measurements they speak for
 - only measures (makes no decisions) and does not know that matching exists
 - returns the name of each measurement and its result
 
@@ -56,25 +57,25 @@ Two tables are shared between the modules:
 - kept apart from scoring because these rules cannot be outweighed, a banned pair stays banned even at a score of 1.0
 
 `scoring.py`: turns the measurements into one score, `S`.
-- give each mode its own set of weights, so that lunch mate counts shared free time more heavily, while study buddy counts major and faculty more heavily
-- return both the final score and the separate measurements behind it, because `llm.py` needs those measurements to explain a match
-- also work out how good a whole run was, using the average score, the score of the worst off user and how many users were left unmatched
+- give each mode its own set of weights, so that friendship counts shared interests more heavily, while a date counts personality and age more heavily
+- score both directions and keep the lower one, since a match one person is lukewarm about is a lukewarm match
+- pick the best of the kinds of connection the two share, and return that alongside the score, because `llm.py` has to know which one it is writing about
+- leave out anything below `MIN_MATCH_SCORE`. A few real matches are better than many average ones, and the two users keep waiting
+- also work out how good a whole run was, one report per kind of connection, listing who is still waiting rather than counting them as failures
 
-`matcher.py`: three ways of matching.
-1. greedy pairing. Take the best allowed pair still available, again and again. Nobody ends up wanting to swap, because both halves of a pair read the same score, so the best pair left has to be taken or those two would rather have each other. It does not give the highest total score, since taking the best pair can strand two people who each had a good second choice.
-2. fairest pairing. Work out each free user's best remaining partner and serve whoever is hardest to place first. Most pairs are banned by the time `constraints.py` has run, so this spends the few allowed partners on the people who have no others, and leaves fewer users out. The average score comes out lower in exchange.
-3. building groups from the bottom up. Start with everyone alone, then join the two closest groups until a stopping point is reached, such as a limit of n users per friend group. When judging a join, use the worst pair in the group rather than the average, so nobody ends up in a group with someone they do not get on with.
+`matcher.py`: three ways of matching, all reading `S` and `H` only and knowing nothing about users.
+1. greedy pairing. Take the best allowed pair still available, again and again. Nobody ends up wanting to swap, because both halves of a pair read the same score. It does not give the highest total, since taking the best pair can strand two people who each had a good second choice.
+2. fairest pairing, then local search. Serve whoever is hardest to place first, then repeatedly apply whichever single swap raises the total most.
+3. blossom, which is `networkx.max_weight_matching`. The highest total there is, by construction.
 
-- 1 and 2 are then compared, to see which works better. They want different things, so which is better depends on whether a run is judged on its average score or on how many people it left out
-- 3 is separate, and is used for friend group mode
-- all three read `S` and `H` only, and know nothing about users
+Measured over 30 runs of 60 made up users: at the `0.6` floor fairest and blossom tie on total and blossom is five times faster, and below the floor blossom wins outright. The three are compared by reading the pairs through `scripts/compare.py` rather than ranking a number, because blossom's win on total is a property of the algorithm rather than a finding.
 
-Gale-Shapley was tried and dropped. It settles a disagreement between two sides' preference orders, and `S` gives both halves of a pair the same number, so there is no disagreement to settle and any correct stable matching is the one greedy already returns.
+Gale-Shapley was tried and dropped. It settles a disagreement between two sides' preference orders, and it was dropped when `S` gave both halves of a pair the same number. Directional scoring has since brought a real disagreement back, so it is worth another look, though one pool of students is the stable roommates problem rather than the two-sided one Gale-Shapley solves.
 
 `llm.py`: asks an LLM to write the message shown to a matched pair.
 - write a system prompt that asks for a match message giving a reason and a suggestion
 - connect to the API
-- send the system prompt along with the details of the match (both users, matching score and feature measurements)
+- send the system prompt along with the details of the match (both users, the kind of connection, the score and the feature measurements)
 - check response quality and format
 - output the message
 - runs after matching, never affects who gets matched
