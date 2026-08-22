@@ -8,9 +8,34 @@ import csv
 import random
 from pathlib import Path
 
+from . import vocabulary
 from .models import User
 
 SEPARATOR = ";"
+
+# Sorted copies of the registries. A frozenset of strings iterates in an
+# order that depends on hash randomisation, which changes between processes,
+# so drawing from one directly would break the seed without any single run
+# noticing.
+_FACULTIES = sorted(vocabulary.MAJORS)
+_MAJORS_BY_FACULTY = {
+    faculty: sorted(majors) for faculty, majors in vocabulary.MAJORS.items()
+}
+_YEARS = sorted(vocabulary.YEARS)
+_MBTIS = sorted(vocabulary.MBTIS)
+_GENDERS = sorted(vocabulary.GENDERS)
+_MODES = sorted(vocabulary.MODES)
+_LANGUAGES = sorted(vocabulary.LANGUAGES)
+_SLOTS = sorted(vocabulary.SLOTS)
+_INTERESTS = sorted(vocabulary.INTERESTS)
+
+# How many of each a made up user is given, as the lowest and the highest.
+# The slot range decides how many pairs share any free time at all, and
+# constraints.py bans a pair that shares none. The interest range decides how
+# often interest_similarity comes back as anything other than 0.0.
+LANGUAGES_EACH = (1, 3)
+SLOTS_EACH = (4, 9)
+INTERESTS_EACH = (5, 10)
 
 REQUIRED_FIELDS = [
     "id",
@@ -69,35 +94,28 @@ def load_users(path: Path) -> list[User]:
 def generate_users(count: int = 100, seed: int | None = None) -> list[User]:
     rng = random.Random(seed)
 
-    majors = ["Computer Science", "Engineering", "Business", "Psychology", "Arts", "Biology",]
-    faculties = ["Science", "Engineering", "Business School", "Arts", "Medical School"]
-    mbtis = ["INTJ", "ENFP", "ISTJ", "INFJ", "ENTP", "ESFP", "INTP", "ENFJ"]
-    genders = ["Female", "Male", "Non-binary"]
-    modes = ["lunch mate", "study buddy", "friend group", "campus couple"]
-
-    lang_pool = ["English", "Korean", "Mandarin", "Spanish", "Japanese","chinese"]
-    slot_pool = ["Mon_AM", "Mon_PM", "Tue_AM", "Tue_PM", "Wed_AM", "Wed_PM", "Thu_AM", "Thu_PM", "Fri_AM", "Fri_PM"]
-    interest_pool = ["Coding", "Music", "Gaming", "Cooking", "Reading", "Sports", "Movies", "Hiking"]
-
     users = []
     for i in range(count):
-        num_langs = rng.randint(1, 3)
-        num_slots = rng.randint(1, 5)
-        num_interests = rng.randint(1, 4)
+        num_langs = rng.randint(*LANGUAGES_EACH)
+        num_slots = rng.randint(*SLOTS_EACH)
+        num_interests = rng.randint(*INTERESTS_EACH)
+
+        # The faculty comes first so that the major can be one it teaches.
+        faculty = rng.choice(_FACULTIES)
 
         user = User(
             id=f"user_{i+1:04d}",
-            major=rng.choice(majors),
-            faculty=rng.choice(faculties),
-            year=rng.randint(1, 4),
+            major=rng.choice(_MAJORS_BY_FACULTY[faculty]),
+            faculty=faculty,
+            year=rng.choice(_YEARS),
             age=rng.randint(18, 25),
-            mbti=rng.choice(mbtis),
-            languages=frozenset(rng.sample(lang_pool, k=num_langs)),
-            gender=rng.choice(genders),
+            mbti=rng.choice(_MBTIS),
+            languages=frozenset(rng.sample(_LANGUAGES, k=num_langs)),
+            gender=rng.choice(_GENDERS),
             proximity_km=round(rng.uniform(0.5, 25.0), 1),
-            free_slots=frozenset(rng.sample(slot_pool, k=num_slots)),
-            interests=frozenset(rng.sample(interest_pool, k=num_interests)),
-            mode=rng.choice(modes),
+            free_slots=frozenset(rng.sample(_SLOTS, k=num_slots)),
+            interests=frozenset(rng.sample(_INTERESTS, k=num_interests)),
+            mode=rng.choice(_MODES),
         )
         users.append(user)
 

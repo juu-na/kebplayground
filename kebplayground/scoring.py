@@ -36,6 +36,18 @@ WEIGHTS: dict[str, dict[str, float]] = {
         "proximity": 0.1,
         "major": 0.0,
     },
+    # One close friend rather than a group. Shared free time counts for more
+    # than it does in friend group because the two actually have to meet, and
+    # sharing a subject counts for something because they are around each
+    # other anyway. Age barely matters once somebody is a close friend.
+    "besties": {
+        "interests": 0.35,
+        "timetable": 0.25,
+        "major": 0.15,
+        "languages": 0.15,
+        "proximity": 0.05,
+        "age": 0.05,
+    },
     "campus couple": {
         "interests": 0.3,
         "age": 0.25,

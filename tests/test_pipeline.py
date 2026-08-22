@@ -14,6 +14,10 @@ between 0 and 1 and moves in the right direction.
 """
 
 import argparse
+import itertools
+import os
+import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -27,16 +31,16 @@ def make_user(uid: str, **overrides: object) -> User:
     """Build a user. Every field has a default, so a test sets only the ones it reads."""
     fields: dict[str, object] = {
         "id": uid,
-        "major": "CS",
-        "faculty": "Science",
+        "major": "Computer Science",
+        "faculty": "Faculty of Science",
         "year": 2,
         "age": 20,
         "mbti": "INTJ",
-        "languages": frozenset({"en"}),
-        "gender": "f",
+        "languages": frozenset({"Korean"}),
+        "gender": "Female",
         "proximity_km": 2.0,
-        "free_slots": frozenset({"MON-09", "MON-10"}),
-        "interests": frozenset({"chess", "hiking"}),
+        "free_slots": frozenset({"MON_MORNING", "MON_AFTERNOON"}),
+        "interests": frozenset({"Chess", "Hiking"}),
         "mode": "study buddy",
         "preferences": {},
     }
@@ -45,26 +49,27 @@ def make_user(uid: str, **overrides: object) -> User:
 
 
 # Three users, covering the cases the pipeline has to tell apart.
-# ALICE and BOB could sensibly be matched. CHARLIE has nothing in common with
-# either of them and wants a different mode.
+# ALICE and BOB could sensibly be matched. CHARLIE wants a different mode, is
+# free at a different time, and studies at the other end of the teachiness
+# scale, so the two of them are the furthest apart the registry allows.
 ALICE = make_user("a")
 BOB = make_user(
     "b",
     age=21,
-    languages=frozenset({"en", "ko"}),
+    languages=frozenset({"Korean", "Mandarin"}),
     proximity_km=3.0,
-    free_slots=frozenset({"MON-10", "MON-11"}),
-    interests=frozenset({"chess"}),
+    free_slots=frozenset({"MON_AFTERNOON", "MON_EVENING"}),
+    interests=frozenset({"Chess"}),
 )
 CHARLIE = make_user(
     "c",
     major="Law",
-    faculty="Law",
+    faculty="Auckland Law School",
     age=30,
-    languages=frozenset({"ko"}),
+    languages=frozenset({"Mandarin"}),
     proximity_km=20.0,
-    free_slots=frozenset({"FRI-15"}),
-    interests=frozenset({"tennis"}),
+    free_slots=frozenset({"FRI_EVENING"}),
+    interests=frozenset({"Tennis"}),
     mode="lunch mate",
 )
 USERS = [ALICE, BOB, CHARLIE]
@@ -193,6 +198,40 @@ class TestData(unittest.TestCase):
             data.generate_users(10, seed=1), data.generate_users(10, seed=1)
         )
 
+    def test_the_same_seed_gives_the_same_users_in_a_new_process(self):
+        # A set of strings iterates in an order that depends on hash
+        # randomisation, which changes between processes. Generating from one
+        # directly would break the seed without any single run noticing.
+        script = (
+            "from kebplayground import data;"
+            "print([(u.major, sorted(u.interests)) for u in data.generate_users(5, seed=1)])"
+        )
+        runs = set()
+        for hash_seed in ("0", "1"):
+            finished = subprocess.run(
+                [sys.executable, "-c", script],
+                capture_output=True,
+                text=True,
+                cwd=Path(__file__).resolve().parent.parent,
+                env={**os.environ, "PYTHONHASHSEED": hash_seed},
+            )
+            self.assertEqual(finished.returncode, 0, finished.stderr)
+            runs.add(finished.stdout)
+        self.assertEqual(len(runs), 1)
+
+    def test_made_up_users_only_use_registered_values(self):
+        for user in data.generate_users(30, seed=1):
+            with self.subTest(user=user.id):
+                self.assertIn(user.faculty, vocabulary.FACULTIES)
+                self.assertIn(user.major, vocabulary.MAJORS[user.faculty])
+                self.assertIn(user.year, vocabulary.YEARS)
+                self.assertIn(user.mbti, vocabulary.MBTIS)
+                self.assertIn(user.gender, vocabulary.GENDERS)
+                self.assertIn(user.mode, vocabulary.MODES)
+                self.assertEqual(user.languages - vocabulary.LANGUAGES, frozenset())
+                self.assertEqual(user.free_slots - vocabulary.SLOTS, frozenset())
+                self.assertEqual(user.interests - vocabulary.INTERESTS, frozenset())
+
     def test_saved_users_can_be_read_back(self):
         # The two functions are the only pair that has to agree on the CSV
         # format, so they are tested together.
@@ -235,7 +274,7 @@ class TestFeatures(unittest.TestCase):
         self.assertEqual(features.timetable_overlap(ALICE, CHARLIE), 0.0)
 
     def test_interest_similarity_is_shared_interests_over_all_interests(self):
-        # chess is shared, hiking is not.
+        # Chess is shared, Hiking is not.
         self.assertAlmostEqual(features.interest_similarity(ALICE, BOB), 0.5)
 
     def test_major_similarity_rewards_the_same_subject(self):
@@ -245,9 +284,48 @@ class TestFeatures(unittest.TestCase):
             features.major_similarity(ALICE, BOB),
         )
 
-    def test_language_similarity_needs_one_shared_language(self):
-        self.assertEqual(features.language_similarity(ALICE, BOB), 1.0)
-        self.assertEqual(features.language_similarity(ALICE, CHARLIE), 0.0)
+    def test_each_shared_language_scores_higher_than_the_last(self):
+        spoken = ["Korean", "Mandarin", "Japanese"]
+        polyglot = make_user("p", languages=frozenset(spoken))
+        # Nothing listed in common, then one shared language, then two, then
+        # three. The first is English on its own.
+        climbing = [
+            features.language_similarity(
+                polyglot, make_user("q", languages=frozenset(spoken[:shared]))
+            )
+            for shared in range(len(spoken) + 1)
+        ]
+        self.assertEqual(climbing, sorted(climbing))
+        self.assertEqual(len(set(climbing)), len(climbing))
+        self.assertEqual(climbing[-1], 1.0)
+
+    def test_sharing_no_listed_language_still_scores_above_zero(self):
+        # vocabulary.LANGUAGES leaves English out because everyone is taken
+        # to speak it, so two users with nothing listed in common can still
+        # talk to each other.
+        both_ways = features.language_similarity(ALICE, CHARLIE)
+        self.assertGreater(both_ways, 0.0)
+        self.assertLess(both_ways, features.language_similarity(ALICE, BOB))
+
+    def test_a_long_shared_list_cannot_beat_the_top_of_the_range(self):
+        many = frozenset(sorted(vocabulary.LANGUAGES)[:8])
+        both = make_user("m", languages=many), make_user("n", languages=many)
+        self.assertEqual(features.language_similarity(*both), 1.0)
+
+    def test_every_faculty_has_a_teachiness_score(self):
+        # A faculty missing here makes major_similarity raise on anyone
+        # studying in it, which only shows up once users are made up.
+        self.assertEqual(set(features.FACULTY_TECHINESS), vocabulary.FACULTIES)
+
+    def test_measuring_made_up_users_stays_between_zero_and_one(self):
+        # The three users written out above cannot catch a value data.py
+        # produces that features.py does not know about.
+        users = data.generate_users(15, seed=1)
+        for x, y in itertools.combinations(users, 2):
+            for name, value in features.measure(x, y).items():
+                with self.subTest(feature=name, a=x.id, b=y.id):
+                    self.assertGreaterEqual(value, 0.0)
+                    self.assertLessEqual(value, 1.0)
 
     def test_closer_commutes_score_higher(self):
         # The cut-off distance is a free choice, so only the direction is
@@ -288,6 +366,11 @@ class TestConstraints(unittest.TestCase):
 
 
 class TestScoring(unittest.TestCase):
+    def test_every_mode_on_offer_has_weights(self):
+        # cli.py builds its --mode choices out of WEIGHTS, so a mode that is
+        # missing here cannot be asked for at all.
+        self.assertEqual(set(scoring.WEIGHTS), vocabulary.MODES)
+
     def test_each_mode_gives_a_weight_to_every_measurement(self):
         for mode, weights in scoring.WEIGHTS.items():
             with self.subTest(mode=mode):
