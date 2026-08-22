@@ -591,6 +591,18 @@ class TestScoring(unittest.TestCase):
 SCORES = {("a", "b"): 0.9, ("a", "c"): 0.5, ("b", "c"): 0.4}
 ALLOWED = {("a", "b"): True, ("a", "c"): True, ("b", "c"): True}
 
+# Four ids, chosen so that taking the best pair first and looking after the
+# worst off user first come out differently.
+FOUR = {
+    ("a", "b"): 0.9,
+    ("a", "c"): 0.5,
+    ("b", "d"): 0.5,
+    ("c", "d"): 0.1,
+    ("a", "d"): 0.0,
+    ("b", "c"): 0.0,
+}
+FOUR_ALLOWED = {pair: True for pair in FOUR}
+
 
 class TestMetrics(unittest.TestCase):
     def test_average_of_no_matches_is_zero(self):
@@ -614,13 +626,36 @@ class TestMetrics(unittest.TestCase):
         self.assertEqual(set(result), {"average", "worst_off", "unmatched"})
 
 
+def made_up_tables(count: int = 30, seed: int = 2, mode: str = "study buddy"):
+    """Users, S and H, built the way cli.py builds them."""
+    users = data.generate_users(count, seed=seed)
+    allowed = constraints.build_allow_table(users)
+    return users, scoring.build_score_table(users, mode, allowed), allowed
+
+
 class TestMatcher(unittest.TestCase):
-    def assert_valid_matching(self, matches):
+    def assert_valid_matching(self, matches, allowed=None):
         """Nobody is matched twice, and no banned pair was used."""
+        allowed = ALLOWED if allowed is None else allowed
         seen = [uid for pair in matches for uid in pair]
         self.assertEqual(len(seen), len(set(seen)), "a user was matched twice")
         for pair in matches:
-            self.assertTrue(ALLOWED.get(tuple(sorted(pair))), f"{pair} is banned")
+            self.assertTrue(allowed.get(tuple(sorted(pair))), f"{pair} is banned")
+
+    def assert_nobody_wants_to_swap(self, matches, scores, allowed):
+        """No two people would both rather drop the partner they were given
+        and take each other instead."""
+        partner = {}
+        for x, y in matches:
+            partner[x] = y
+            partner[y] = x
+        for key, score in scores.items():
+            if not allowed.get(key):
+                continue
+            x, y = key
+            x_prefers = partner.get(x) is None or score > scores[pair_key(x, partner[x])]
+            y_prefers = partner.get(y) is None or score > scores[pair_key(y, partner[y])]
+            self.assertFalse(x_prefers and y_prefers, f"{key} would rather swap")
 
     def test_greedy_takes_the_best_pair_first(self):
         matches = matcher.greedy(SCORES, ALLOWED)
@@ -636,32 +671,37 @@ class TestMatcher(unittest.TestCase):
         matches = matcher.greedy(SCORES, allowed)
         self.assertNotIn(("a", "b"), matches)
 
-    def test_gale_shapley_produces_a_valid_matching(self):
-        self.assert_valid_matching(matcher.gale_shapley(SCORES, ALLOWED))
+    def test_greedy_leaves_nobody_wanting_to_swap(self):
+        # Both halves of a pair read the same score, so everybody agrees
+        # which pairs are good, and the best pair left has to be taken.
+        # Taking it and repeating is what greedy does.
+        self.assert_nobody_wants_to_swap(matcher.greedy(SCORES, ALLOWED), SCORES, ALLOWED)
 
-    def test_gale_shapley_gives_the_same_answer_every_time(self):
+    def test_fairest_produces_a_valid_matching(self):
+        self.assert_valid_matching(matcher.fairest(SCORES, ALLOWED))
+
+    def test_fairest_gives_the_same_answer_every_time(self):
         # Without this, two algorithms cannot be compared.
         self.assertEqual(
-            matcher.gale_shapley(SCORES, ALLOWED),
-            matcher.gale_shapley(SCORES, ALLOWED),
+            matcher.fairest(SCORES, ALLOWED),
+            matcher.fairest(SCORES, ALLOWED),
         )
 
-    def test_nobody_wants_to_swap(self):
-        # This is the whole point of the algorithm. There must be no two
-        # people who would both rather drop the partner they were given and
-        # take each other instead.
-        matches = matcher.gale_shapley(SCORES, ALLOWED)
-        partner = {}
-        for x, y in matches:
-            partner[x] = y
-            partner[y] = x
-        for key, score in SCORES.items():
-            if not ALLOWED.get(key):
-                continue
-            x, y = key
-            x_prefers = partner.get(x) is None or score > SCORES[pair_key(x, partner[x])]
-            y_prefers = partner.get(y) is None or score > SCORES[pair_key(y, partner[y])]
-            self.assertFalse(x_prefers and y_prefers, f"{key} would rather swap")
+    def test_fairest_lifts_the_lowest_match(self):
+        # greedy takes ab at 0.9 and is then stuck giving c and d each other
+        # at 0.1. fairest serves c first, and everybody ends up on 0.5.
+        worst_greedy = min(FOUR[pair] for pair in matcher.greedy(FOUR, FOUR_ALLOWED))
+        worst_fairest = min(FOUR[pair] for pair in matcher.fairest(FOUR, FOUR_ALLOWED))
+        self.assertGreater(worst_fairest, worst_greedy)
+
+    def test_fairest_leaves_fewer_people_out(self):
+        # The reason it earns a place next to greedy. Most pairs are banned,
+        # so serving the hardest to place user first spends the few allowed
+        # partners on the people who have no others.
+        _, scores, allowed = made_up_tables(count=60)
+        self.assertGreater(
+            len(matcher.fairest(scores, allowed)), len(matcher.greedy(scores, allowed))
+        )
 
     def test_cluster_keeps_groups_under_the_size_limit(self):
         for group in matcher.cluster(SCORES, ALLOWED, max_size=2):
@@ -676,6 +716,34 @@ class TestMatcher(unittest.TestCase):
         for name, fn in matcher.ALGORITHMS.items():
             with self.subTest(algo=name):
                 self.assert_valid_matching(fn(SCORES, ALLOWED))
+
+    def test_every_algorithm_handles_made_up_users(self):
+        # Three ids is small enough to hide a wrong answer. These run the
+        # whole pipeline, so the tables are the shape the CLI really passes.
+        users, scores, allowed = made_up_tables()
+        for name, fn in matcher.ALGORITHMS.items():
+            with self.subTest(algo=name):
+                matches = fn(scores, allowed)
+                self.assert_valid_matching(matches, allowed)
+                self.assertEqual(matches, fn(scores, allowed), "not the same twice")
+                # evaluate raises on a banned pair, so this is a second
+                # opinion on the matching being a legal one.
+                scoring.evaluate(users, matches, scores, allowed)
+
+    def test_nobody_wants_to_swap_on_made_up_users(self):
+        # The property only holds by luck on three ids, so it is worth
+        # checking at a size where luck runs out.
+        _, scores, allowed = made_up_tables()
+        self.assert_nobody_wants_to_swap(matcher.greedy(scores, allowed), scores, allowed)
+
+    def test_cluster_puts_every_made_up_user_in_a_group(self):
+        users, scores, allowed = made_up_tables()
+        groups = matcher.cluster(scores, allowed, max_size=4)
+        members = [uid for group in groups for uid in group]
+        self.assertEqual(sorted(members), sorted(user.id for user in users))
+        for group in groups:
+            with self.subTest(group=group):
+                self.assertLessEqual(len(group), 4)
 
 
 class TestLLM(unittest.TestCase):
