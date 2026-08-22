@@ -6,8 +6,7 @@ A pair banned here stays banned even if it scores 1.0.
 Produces H, the allow table that matcher.py reads.
 """
 
-import itertools
-from .models import AllowTable, User, pair_key
+from .models import AllowTable, User
 
 
 def is_allowed(a: User, b: User) -> bool:
@@ -24,20 +23,7 @@ def is_allowed(a: User, b: User) -> bool:
 
     Returning False as soon as one rule fails keeps this easy to read.
     """
-    if a == b:
-        return False
-    if a.mode != b.mode:
-        return False
-    if not (set(a.free_slots) & set(b.free_slots)):
-        return False
-    if hasattr(a, 'allows') and not a.allows(b):
-        return False
-    if hasattr(b, 'allows') and not b.allows(a):
-        return False
-
-    return True
-
-
+    raise NotImplementedError
 
 
 def build_allow_table(users: list[User]) -> AllowTable:
@@ -53,10 +39,4 @@ def build_allow_table(users: list[User]) -> AllowTable:
     combinations never pairs a user with themselves, so that case never
     reaches the table.
     """
-    table = {}
-    for u1, u2 in itertools.combinations(users, 2):
-        key = pair_key(u1, u2)
-        table[key] = is_allowed(u1, u2)
-    return table
-
- 
+    raise NotImplementedError
