@@ -34,14 +34,24 @@ uv sync
 Creates the `.venv` directory and installs the dependencies listed in
 `pyproject.toml`.
 
+`--explain` calls Gemini, which needs a key of your own:
+
+```bash
+cp .env.example .env
+```
+
+Then put your key in `.env` against `GEMINI_API_KEY`. `.env` is gitignored,
+so the key never leaves your machine. Everything apart from `--explain` runs
+without one.
+
 ## Run
 
 ```bash
 uv run python -m kebplayground.cli --mode NAME --algo NAME
 ```
 
-This raises `NotImplementedError` for now, since `cli.py` has not been
-written yet.
+This raises `NotImplementedError` for now, since `scoring.py` and
+`matcher.py` have not been written yet.
 
 ### Arguments:
 
@@ -53,10 +63,15 @@ written yet.
 | `--mode NAME` | the kind of connection, one of the modes in `scoring.WEIGHTS` |
 | `--algo NAME` | `greedy`, `stable` or `cluster` |
 | `--explain` | also ask the LLM to write the match messages |
+| `--cache PATH` | where the LLM answers are kept between runs, `.cache/llm.json` by default |
 | `--output PATH` | where to write the results as JSON |
 
-`--explain` is the only part that calls out to an LLM. No provider has been
-chosen yet, so the package to install and the API key to set are still open.
+`--explain` is the only part that calls out to an LLM. Without a key it
+falls back to a plain message built from the measurements, so a run always
+finishes.
+
+Answers are kept in `.cache/llm.json` and reused, so asking for the same
+match twice only costs one call.
 
 ## Test
 
@@ -66,6 +81,6 @@ uv run python -m unittest discover -s tests -t .
 
 Add `-v` to see the name of each test as it runs.
 
-Nearly every test fails initially, and each failure names a function that
-has not been written yet. Work down the file in the order it is written in,
-which is the order the data moves through the modules.
+Every failure names a function that has not been written yet. Work down the
+file in the order it is written in, which is the order the data moves through
+the modules.
