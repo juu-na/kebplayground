@@ -5,7 +5,9 @@ The result of each separate measurement is kept alongside the final score,
 because llm.py needs them to explain why a pair was matched.
 """
 
-from .models import AllowTable, ScoreTable, User
+import itertools
+
+from .models import AllowTable, ScoreTable, User, pair_key
 from . import features
 
 
@@ -109,7 +111,16 @@ def build_score_table(
     needs them calls score_pair again for the few pairs that ended up
     matched, rather than storing them for every pair.
     """
-    raise NotImplementedError
+    score_list = {}
+    for user1 in range(len(users) - 1):
+        for user2 in range(user1 + 1, len(users)):
+            key = pair_key(users[user1], users[user2])
+            if not allowed.get(key):
+                continue
+            score, _ = score_pair(users[user1], users[user2], mode)
+            score_list[key] = score
+
+    return score_list
 
 
 # Ways of judging a finished run.
@@ -122,7 +133,9 @@ def average_score(matches: list[tuple[str, str]], scores: ScoreTable) -> float:
 
     Returns 0.0 when nothing was matched.
     """
-    raise NotImplementedError
+    if not matches:
+        return 0.0
+    return sum(scores[pair_key(a, b)] for a, b in matches) / len(matches)
 
 
 def worst_off_score(matches: list[tuple[str, str]], scores: ScoreTable) -> float:
@@ -130,12 +143,15 @@ def worst_off_score(matches: list[tuple[str, str]], scores: ScoreTable) -> float
 
     A good average can hide one user matched at 0.1. This number shows it.
     """
-    raise NotImplementedError
+    if not matches:
+        return 0.0
+    return min(scores[pair_key(a, b)] for a, b in matches)
 
 
 def unmatched_count(users: list[User], matches: list[tuple[str, str]]) -> int:
     """How many users were left out of every match."""
-    raise NotImplementedError
+    matched_ids = {uid for pair in matches for uid in pair}
+    return len(users) - len(matched_ids)
 
 
 def evaluate(
@@ -155,4 +171,12 @@ def evaluate(
     pair that was matched anyway. That check is what catches a mistake in
     matcher.py.
     """
-    raise NotImplementedError
+    for a, b in matches:
+        if not allowed.get(pair_key(a, b)):
+            raise ValueError(f"matcher produced a banned pair: {(a, b)}")
+
+    return {
+        "average": average_score(matches, scores),
+        "worst_off": worst_off_score(matches, scores),
+        "unmatched": unmatched_count(users, matches),
+    }
