@@ -223,15 +223,14 @@ GENDERS = frozenset({"Female", "Male", "Non-binary"})
 # and Medicine (MBChB) is the only one that reaches 6.
 YEARS = frozenset({1, 2, 3, 4, 5, 6})
 
-# The kinds of connection on offer. scoring.WEIGHTS gives each one its own
-# set of weights, so the two lists have to agree.
-MODES = frozenset({"besties", "lunch mate", "study buddy", "friend group", "campus couple"})
+# The kinds of connection on offer. A user ticks one or both, and a pair is
+# only considered when they share one. scoring.WEIGHTS gives each its own set
+# of weights, so the two lists have to agree.
+MODES = frozenset({"friendship", "date"})
 
-# A free slot is a weekday and one of three blocks, written as one string,
-# for example "MON_MORNING".
-DAYS = ("MON", "TUE", "WED", "THU", "FRI")
-BLOCKS = {"MORNING": "09-12", "AFTERNOON": "12-15", "EVENING": "15-18"}
-SLOTS = frozenset(f"{day}_{block}" for day in DAYS for block in BLOCKS)
+# Where a user is up to. Only the waiting ones take part in a run. The rest
+# are here so that Phase 2 has somewhere to put them.
+STATUSES = frozenset({"waiting", "offered", "accepted", "declined", "met"})
 
 
 def faculty_of(major: str) -> str:

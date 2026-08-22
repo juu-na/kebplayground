@@ -10,10 +10,6 @@ It does not make any decision on matching.
 
 from dataclasses import dataclass, field
 
-# A timetable slot is a day and an hour, written as one string,
-# for example "MON-09".
-Slot = str
-
 # A pair is two user ids. The two ids are always stored in sorted order,
 # so that (a, b) and (b, a) point at the same entry.
 Pair = tuple[str, str]
@@ -23,6 +19,10 @@ ScoreTable = dict[Pair, float]
 
 # H, whether a pair is allowed at all. True means allowed.
 AllowTable = dict[Pair, bool]
+
+# The mode each pair was scored under. Kept apart from S so that S stays a
+# plain table of floats, which the matcher and the metrics read unchanged.
+ModeTable = dict[Pair, str]
 
 
 @dataclass(frozen=True)
@@ -44,14 +44,15 @@ class User:
     # Which part of Auckland the user lives in. Only ever read to work out
     # whether two users live in the same one.
     area: str
-    # The slots the user is free. Any slot not listed counts as busy.
-    free_slots: frozenset[Slot]
     interests: frozenset[str]
-    # The kind of connection the user is after, for example
-    # "lunch mate", "study buddy", "friend group", "campus couple".
-    mode: str
+    # The kinds of connection the user is open to, one or both of
+    # "friendship" and "date". A pair is only considered when they share one.
+    modes: frozenset[str]
     # Anything extra, such as a preferred age range or gender preference.
     preferences: dict[str, object] = field(default_factory=dict)
+    # Where the user is up to. Only "waiting" users take part in a run.
+    # The rest exist so that Phase 2 does not have to change this file again.
+    status: str = "waiting"
 
 
 def pair_key(a: User | str, b: User | str) -> Pair:
