@@ -22,6 +22,7 @@ import sys
 import tempfile
 import unittest
 import unittest.mock
+from typing import cast
 from pathlib import Path
 
 from kebplayground import constraints, data, features, llm, matcher, scoring, vocabulary
@@ -180,6 +181,83 @@ class TestModels(unittest.TestCase):
 
     def test_pair_key_accepts_bare_ids(self):
         self.assertEqual(pair_key("b", "a"), ("a", "b"))
+
+
+class TestCohort(unittest.TestCase):
+    def test_the_default_cohort_changes_nothing(self):
+        # Every existing caller passes count and seed only.
+        self.assertEqual(
+            data.generate_users(20, seed=3),
+            data.generate_users(20, seed=3, cohort=data.EVERYONE),
+        )
+
+    def test_a_cohort_of_one_faculty_produces_only_that_faculty(self):
+        one = sorted(vocabulary.FACULTIES)[0]
+        cohort = data.Cohort(faculties=(one,))
+        for user in data.generate_users(20, seed=1, cohort=cohort):
+            with self.subTest(user=user.id):
+                self.assertEqual(user.faculty, one)
+                self.assertIn(user.major, vocabulary.MAJORS[one])
+
+    def test_a_cohort_restricts_years_and_modes(self):
+        cohort = data.Cohort(years=(1, 2), mode_weights={"friendship": 1})
+        for user in data.generate_users(20, seed=1, cohort=cohort):
+            with self.subTest(user=user.id):
+                self.assertIn(user.year, (1, 2))
+                self.assertEqual(user.modes, frozenset({"friendship"}))
+
+    def test_weighted_modes_follow_the_weights(self):
+        cohort = data.Cohort(mode_weights={"friendship": 9, "date": 1})
+        modes = [user.modes for user in data.generate_users(200, seed=1, cohort=cohort)]
+        only_friendship = sum(1 for m in modes if m == frozenset({"friendship"}))
+        only_date = sum(1 for m in modes if m == frozenset({"date"}))
+        self.assertGreater(only_friendship, only_date * 3)
+
+    def test_weighted_ages_stay_inside_the_range(self):
+        cohort = data.Cohort(ages=(19, 21), age_weights=(1, 8, 1))
+        ages = [user.age for user in data.generate_users(60, seed=1, cohort=cohort)]
+        self.assertEqual(set(ages) - {19, 20, 21}, set())
+        # The middle weight is eight times the others, so it has to dominate.
+        self.assertGreater(ages.count(20), ages.count(19) + ages.count(21))
+
+    def test_weighted_languages_come_from_the_keys_and_follow_the_weights(self):
+        cohort = data.Cohort(language_weights={"Korean": 50, "Japanese": 1})
+        spoken = [user.languages for user in data.generate_users(60, seed=1, cohort=cohort)]
+        for languages in spoken:
+            self.assertEqual(languages - {"Korean", "Japanese"}, frozenset())
+        korean = sum(1 for languages in spoken if "Korean" in languages)
+        japanese = sum(1 for languages in spoken if "Japanese" in languages)
+        self.assertGreater(korean, japanese)
+
+    def test_a_shaped_cohort_still_repeats_for_the_same_seed(self):
+        cohort = data.Cohort(
+            years=(1, 2, 3),
+            ages=(19, 21),
+            age_weights=(1, 2, 1),
+            language_weights={"Korean": 4, "Mandarin": 1},
+            gender_weights={"Female": 1, "Male": 1},
+        )
+        self.assertEqual(
+            data.generate_users(15, seed=7, cohort=cohort),
+            data.generate_users(15, seed=7, cohort=cohort),
+        )
+
+    def test_a_cohort_naming_something_unregistered_is_turned_down(self):
+        with self.assertRaisesRegex(ValueError, "Klingon"):
+            data.Cohort(language_weights={"Klingon": 1})
+        with self.assertRaisesRegex(ValueError, "Hogwarts"):
+            data.Cohort(faculties=("Hogwarts",))
+        with self.assertRaisesRegex(ValueError, "lunch"):
+            data.Cohort(mode_weights={"lunch": 1})
+
+    def test_a_cohort_with_the_wrong_number_of_age_weights_is_turned_down(self):
+        with self.assertRaisesRegex(ValueError, "needs 3 weights"):
+            data.Cohort(ages=(19, 21), age_weights=(1, 1))
+
+    def test_an_empty_cohort_field_is_turned_down(self):
+        # Leaving the field out is the only way of saying no restriction.
+        with self.assertRaisesRegex(ValueError, "Leave it out"):
+            data.Cohort(years=())
 
 
 class TestData(unittest.TestCase):
@@ -686,10 +764,11 @@ class TestMetrics(unittest.TestCase):
     def test_evaluate_reports_per_mode_and_lists_who_is_waiting(self):
         modes = {("a", "b"): "friendship"}
         result = scoring.evaluate(USERS, [("a", "b")], SCORES, modes, ALLOWED)
+        mode_stats = cast(dict[str, dict[str, object]], result["modes"])
         self.assertEqual(set(result), {"modes", "waiting"})
-        self.assertEqual(set(result["modes"]), set(scoring.WEIGHTS))
-        self.assertEqual(result["modes"]["friendship"]["pairs"], 1)
-        self.assertEqual(result["modes"]["date"]["pairs"], 0)
+        self.assertEqual(set(mode_stats), set(scoring.WEIGHTS))
+        self.assertEqual(mode_stats["friendship"]["pairs"], 1)
+        self.assertEqual(mode_stats["date"]["pairs"], 0)
         # Waiting is not a failure, so c is listed rather than counted against.
         self.assertEqual(result["waiting"], ["c"])
 
