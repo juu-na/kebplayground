@@ -5,8 +5,11 @@ the highest total by construction, so ranking on total score would record a
 property of the algorithm rather than find anything out. What matters is
 whether the pairs look like the ones a person would expect.
 
-    uv run python scripts/compare.py
-    uv run python scripts/compare.py --input users.csv --min-score 0.5
+    python -m scripts.compare
+    python -m scripts.compare --input users.csv --min-score 0.5
+
+Run as a module rather than by path. The package is not installed, so only
+the working directory puts it on the import path.
 """
 
 import argparse
