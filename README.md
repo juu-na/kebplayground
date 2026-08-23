@@ -1,23 +1,26 @@
 # kebplayground
 
 Matches university students with each other, based on how well their
-timetables, subjects, interests and languages line up.
+subjects, interests, languages and personalities line up.
 
-A user picks a mode, meaning the kind of connection they are after, such as
-a lunch mate, a study buddy, a friend group or a campus couple. The mode
-decides which things count for more when working out a score. Three matching
-algorithms are then run over those scores and compared against each other.
+A user signs up once, says whether they are after friendship or a date and
+says what they are after in the other person. That choice decides
+which things count for more when working out a score, and a stated preference
+lifts whatever it speaks for. A pair is scored from both sides and keeps the
+lower of the two, so a match one person is lukewarm about is a lukewarm match.
+
+Anything below the minimum score is not offered at all. Somebody nobody suits
+yet keeps waiting for the next run, because a few real matches are better than
+many average ones.
 
 How the code is put together, and what each module does, is in
 [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ## Status
 
-Phase 1 is a set of empty functions.
-Each one has a description of what goes in, what comes out, and what it has
-to do. Every one of them raises `NotImplementedError` until it is written.
+Phase 1 is written and runs end to end.
 
-The tests in `tests/` describe what each function has to do once written.
+The tests in `tests/` describe what each module promises the others.
 They are the checklist for the work.
 
 ## Requirements
@@ -47,11 +50,14 @@ without one.
 ## Run
 
 ```bash
-uv run python -m kebplayground.cli --mode NAME --algo NAME
+uv run python -m kebplayground.cli
 ```
 
-This raises `NotImplementedError` for now, since `scoring.py` and
-`matcher.py` have not been written yet.
+Every module is written, so this runs the whole pipeline and prints the
+matches, then the people still waiting for one.
+
+A user says in their profile which kind of connection they are after, so
+there is no flag for it. A run covers everybody who is waiting.
 
 ### Arguments:
 
@@ -60,8 +66,7 @@ This raises `NotImplementedError` for now, since `scoring.py` and
 | `--input PATH` | a CSV of users. When left out, users are made up |
 | `--count N` | how many users to make up, 100 by default |
 | `--seed N` | the seed used when making up users, so a run can be repeated exactly |
-| `--mode NAME` | the kind of connection, one of the modes in `scoring.WEIGHTS` |
-| `--algo NAME` | `greedy`, `stable` or `cluster` |
+| `--min-score N` | the lowest score worth offering, `0.6` by default |
 | `--explain` | also ask the LLM to write the match messages |
 | `--cache PATH` | where the LLM answers are kept between runs, `.cache/llm.json` by default |
 | `--output PATH` | where to write the results as JSON |

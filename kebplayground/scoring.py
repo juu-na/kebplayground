@@ -7,125 +7,129 @@ because llm.py needs them to explain why a pair was matched.
 
 import itertools
 
-from .models import AllowTable, ScoreTable, User, pair_key
+from .models import AllowTable, ModeTable, ScoreTable, User, pair_key
 from . import features
-
 
 # How much each measurement counts, for each mode.
 # The weights inside one mode are to add up to 1.0. That is what keeps the
 # final score between 0.0 and 1.0 without any further adjustment.
 # The numbers below are examples. Tune them to improve scoring accuracy.
 WEIGHTS: dict[str, dict[str, float]] = {
-    "lunch mate": {
-        "timetable": 0.5,
-        "interests": 0.2,
-        "languages": 0.1,
-        "age": 0.1,
-        "major": 0.0,
-        "mbti": 0.1,
-    },
-    "study buddy": {
-        "major": 0.4,
-        "timetable": 0.3,
-        "interests": 0.0,
-        "languages": 0.15,
-        "age": 0.15,
-        "mbti": 0.0,
-    },
-    "friend group": {
+    "friendship": {
         "interests": 0.35,
-        "timetable": 0.2,
-        "age": 0.2,
-        "languages": 0.15,
-        "major": 0.0,
-        "mbti": 0.1,
-    },
-    # One close friend rather than a group. Shared free time counts for more
-    # than it does in friend group because the two actually have to meet, and
-    # sharing a subject counts for something because they are around each
-    # other anyway. Age barely matters once somebody is a close friend.
-    "besties": {
-        "interests": 0.25,
-        "mbti": 0.25,
-        "timetable": 0.15,
+        "mbti": 0.15,
         "major": 0.15,
         "languages": 0.15,
-        "age": 0.05,
+        "age": 0.10,
+        "year": 0.05,
+        "area": 0.05,
     },
-    "campus couple": {
+    "date": {
         "interests": 0.25,
         "mbti": 0.25,
-        "age": 0.25,
-        "timetable": 0.1,
+        "age": 0.20,
         "languages": 0.15,
-        "major": 0.0,
+        "area": 0.10,
+        "major": 0.05,
+        "year": 0.00,
     },
 }
 
+# The lowest a pair may score and still be worth offering. A few real matches
+# are better than many average ones, so a pair under this is left out and both
+# users keep waiting. cli.py can override it with --min-score.
+# 0.6 is experimentally chosen and works well for generated data.
+MIN_MATCH_SCORE = 0.6
 
-def score_pair(a: User, b: User, mode: str) -> tuple[float, dict[str, float]]:
-    """Score one pair, using the weights for one mode.
 
-    Input: two users, and the mode whose weights apply.
-    Output: the final score, and the separate measurements it was built
-    from, for example (0.62, {"timetable": 0.4, "major": 1.0, ...}).
+def _direction(seen: dict[str, float], weights: dict[str, float]) -> float:
+    """One user's view of another, as a single number.
 
-    To implement: call features.measure, look up the weights for the mode,
-    then multiply each measurement by its weight and add the results
-    together.
-
-    A mode that is not in WEIGHTS is to raise an error, not fall back to a
-    default set of weights. A fallback would turn a typo in the command line
-    argument into a run that looks like it worked.
+    Divided by the weights of whatever measurements came back rather than by
+    1.0, because features.view leaves area out unless somebody asked for it.
+    Without the divisor every pair would quietly lose the area weight for a
+    question nobody asked.
     """
-    measurements = features.measure(a, b)
-    weights = WEIGHTS.get(mode)
-    if weights is None:
-        raise ValueError(f"Unknown mode: {mode}")
-
-    total_score = sum(measurements[name] * weight for name, weight in weights.items())
-    return total_score, measurements
+    live = {name: weights[name] for name in seen}
+    return sum(seen[name] * weight for name, weight in live.items()) / sum(
+        live.values()
+    )
 
 
+def score_pair(a: User, b: User) -> tuple[float, str, dict[str, float]]:
+    """Score one pair, under the kind of connection they both want.
+
+    Input: two users.
+    Output: the score, the mode it was scored under, and the measurements it
+    was built from.
+
+    Each user sees the other differently, because a stated preference lifts
+    the measurements it speaks for. The pair takes the lower of the two
+    views: a match one person is lukewarm about is a lukewarm match, whatever
+    the other one thinks.
+
+    The age preference bans in constraints.py and does not lift age_similarity
+    here, so the age weight scores how close two people are inside a range
+    that was already allowed. Somebody who said 20 to 30 has not said whether
+    21 or 29 suits them better.
+
+    Two users after different things should have been banned by H, so
+    reaching this without a shared mode is a mistake worth hearing about.
+    """
+    if a.mode != b.mode:
+        raise ValueError(f"{a.id} wants {a.mode} and {b.id} wants {b.mode}")
+
+    weights = WEIGHTS[a.mode]
+    forwards = _direction(features.view(a, b), weights)
+    backwards = _direction(features.view(b, a), weights)
+
+    # The breakdown comes from whichever side liked it less, since that is
+    # the side a message has to win over.
+    if forwards <= backwards:
+        return forwards, a.mode, features.view(a, b)
+    return backwards, a.mode, features.view(b, a)
 
 
 def build_score_table(
     users: list[User],
-    mode: str,
     allowed: AllowTable,
-) -> ScoreTable:
-    """Score the pairs that are allowed.
+    floor: float = MIN_MATCH_SCORE,
+) -> tuple[ScoreTable, ModeTable, AllowTable]:
+    """Score the pairs that are allowed, and drop the ones not worth offering.
 
-    Input: the full list of users, the mode being used, and H.
-    Output: S, a dict giving the score for each allowed pair.
+    Input: the full list of users, H, and the lowest score worth offering.
+    Output: S, the mode each pair was scored under, and a fresh H with the
+    pairs under the floor marked False.
 
-    To implement: go through every pair once, the same way
-    constraints.build_allow_table does, skip any pair H marks as not
-    allowed, and keep only the score.
-
-    Banned pairs are left out rather than scored and ignored later. A banned
-    pair cannot be matched whatever it scores, so working out its score is
-    wasted. This is why constraints.py runs first.
+    A new H comes back rather than the one that went in being edited, so a
+    caller that still wants the unfiltered table has it. Anything reading
+    either table then agrees on which pairs are live.
 
     The separate measurements are dropped here on purpose. Anything that
     needs them calls score_pair again for the few pairs that ended up
     matched, rather than storing them for every pair.
     """
-    score_list = {}
-    for user1 in range(len(users) - 1):
-        for user2 in range(user1 + 1, len(users)):
-            key = pair_key(users[user1], users[user2])
-            if not allowed.get(key):
-                continue
-            score, _ = score_pair(users[user1], users[user2], mode)
-            score_list[key] = score
+    scores: ScoreTable = {}
+    modes: ModeTable = {}
+    live = dict(allowed)
 
-    return score_list
+    for one, other in itertools.combinations(users, 2):
+        key = pair_key(one, other)
+        if not allowed.get(key):
+            continue
+
+        score, mode, _ = score_pair(one, other)
+        if score < floor:
+            live[key] = False
+            continue
+
+        scores[key] = score
+        modes[key] = mode
+
+    return scores, modes, live
 
 
-# Ways of judging a finished run.
-# These are what make it possible to compare one algorithm against another,
-# instead of only running them.
+# Ways of judging a finished run, used to compare one algorithm against another.
 
 
 def average_score(matches: list[tuple[str, str]], scores: ScoreTable) -> float:
@@ -150,33 +154,47 @@ def worst_off_score(matches: list[tuple[str, str]], scores: ScoreTable) -> float
 
 def unmatched_count(users: list[User], matches: list[tuple[str, str]]) -> int:
     """How many users were left out of every match."""
+    known = {user.id for user in users}
     matched_ids = {uid for pair in matches for uid in pair}
-    return len(users) - len(matched_ids)
+    strangers = matched_ids - known
+    if strangers:
+        raise ValueError(
+            f"matched somebody who is not in the list: {sorted(strangers)}"
+        )
+    return len(known - matched_ids)
 
 
 def evaluate(
     users: list[User],
     matches: list[tuple[str, str]],
     scores: ScoreTable,
+    modes: ModeTable,
     allowed: AllowTable,
-) -> dict[str, float]:
-    """Run all of the above and return them together.
+) -> dict[str, object]:
+    """Judge a finished run, one report per kind of connection.
 
-    Output: a dict such as
-        {"average": 0.61, "worst_off": 0.22, "unmatched": 4}
+    Output: a dict holding a block per mode, and the users still waiting.
 
-    To implement: call the three functions above.
-
-    The allow table is passed in so that a check can be added for any banned
-    pair that was matched anyway. That check is what catches a mistake in
-    matcher.py.
+    Waiting users are listed rather than counted against the run. Somebody
+    nobody suits yet has not been failed, they are waiting for the next one,
+    which is what the app promises.
     """
     for a, b in matches:
         if not allowed.get(pair_key(a, b)):
             raise ValueError(f"matcher produced a banned pair: {(a, b)}")
 
+    per_mode: dict[str, dict[str, float]] = {}
+    for mode in sorted(WEIGHTS):
+        of_mode = [pair for pair in matches if modes.get(pair_key(*pair)) == mode]
+        per_mode[mode] = {
+            "pairs": len(of_mode),
+            "total": round(sum(scores[pair_key(*pair)] for pair in of_mode), 4),
+            "average": round(average_score(of_mode, scores), 4),
+            "worst_off": round(worst_off_score(of_mode, scores), 4),
+        }
+
+    matched = {uid for pair in matches for uid in pair}
     return {
-        "average": average_score(matches, scores),
-        "worst_off": worst_off_score(matches, scores),
-        "unmatched": unmatched_count(users, matches),
+        "modes": per_mode,
+        "waiting": sorted(user.id for user in users if user.id not in matched),
     }

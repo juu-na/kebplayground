@@ -15,10 +15,9 @@ and what a user is allowed to state as a preference.
 # often name, not the full catalogue, so that two users matching on a major
 # still means something.
 #
-# A few majors are taught in more than one faculty at UoA. Psychology,
-# Mathematics, Statistics and Geography are also Arts subjects, and Economics
-# is also an Arts subject. Each one is listed under a single faculty here, so
-# that faculty_of gives one answer.
+# A few majors are taught in more than one faculty at UoA. Mathematics,
+# Statistics and Economics are also Arts subjects. Each one is listed under a
+# single faculty here, so that faculty_of gives one answer.
 MAJORS: dict[str, frozenset[str]] = {
     "Faculty of Engineering and Design": frozenset({
         # The ten accredited BE(Hons) specialisations.
@@ -32,21 +31,16 @@ MAJORS: dict[str, frozenset[str]] = {
         "Mechatronics Engineering",
         "Software Engineering",
         "Structural Engineering",
-        # The three non-engineering degrees in the same faculty.
+        # The two non-engineering degrees in the same faculty.
         "Architectural Studies",
         "Design",
-        "Urban Planning",
     }),
     "Faculty of Science": frozenset({
         "Chemistry",
         "Computer Science",
         "Data Science",
-        "Environmental Science",
-        "Marine Science",
         "Mathematics",
         "Physics",
-        "Physiology",
-        "Psychology",
         "Statistics",
     }),
     "Faculty of Medical and Health Sciences": frozenset({
@@ -59,80 +53,86 @@ MAJORS: dict[str, frozenset[str]] = {
         "Pharmacy",
     }),
     "Business School": frozenset({
-        # The thirteen BCom majors.
+        # The BCom majors students most often take.
         "Accounting",
-        "Business Analytics",
-        "Commercial Law",
         "Economics",
         "Finance",
-        "Information Systems",
-        "Innovation and Entrepreneurship",
-        "International Business",
         "Management",
         "Marketing",
-        "Operations and Supply Chain Management",
-        "Property",
-        "Taxation",
     }),
     "Auckland Law School": frozenset({
         "Law",
     }),
     "Faculty of Arts and Education": frozenset({
-        "Anthropology",
         "Communication",
-        "Criminology",
         "Education",
         "English",
         "Fine Arts",
         "History",
-        "Linguistics",
-        "Media and Screen Studies",
         "Music",
-        "Māori Studies",
-        "Philosophy",
-        "Politics and International Relations",
-        "Sociology",
     }),
 }
 
 FACULTIES = frozenset(MAJORS)
 ALL_MAJORS = frozenset().union(*MAJORS.values())
 
-# Where in Auckland the user lives, so a commute can be worked out without
-# asking anyone for a distance.
+# The departments a faculty is split into, and the majors each one teaches.
+#
+# Two majors in one department share most of their courses and their building,
+# so they are closer than two majors that only share a faculty.
+# features.major_similarity reads this as its middle step.
+#
+# Only Engineering is split so far. A major left out of every department is
+# compared on its faculty alone.
+DEPARTMENTS: dict[str, frozenset[str]] = {
+    "Mechanical and Mechatronics Engineering": frozenset({
+        "Mechanical Engineering",
+        "Mechatronics Engineering",
+    }),
+    "Electrical, Computer and Software Engineering": frozenset({
+        "Electrical and Electronic Engineering",
+        "Computer Systems Engineering",
+        "Software Engineering",
+    }),
+    "Engineering Science and Biomedical Engineering": frozenset({
+        "Engineering Science",
+        "Biomedical Engineering",
+    }),
+    "Civil and Environmental Engineering": frozenset({
+        "Civil Engineering",
+        "Structural Engineering",
+    }),
+    "Chemical and Materials Engineering": frozenset({
+        "Chemical and Materials Engineering",
+    }),
+    "Architecture and Planning": frozenset({
+        "Architectural Studies",
+        "Design",
+    }),
+}
+
+# Where in Auckland the user lives, used for same_area_only preference check.
 AREAS = frozenset({"North", "South", "East", "West", "Central"})
 
 # What a user speaks besides English. Everyone is assumed to speak English, so
 # it is not listed here and cannot be stated as a preference.
-#
-# The list follows the languages the 2023 Census counted most speakers for in
-# New Zealand, weighted towards Auckland, which is home to about 70 percent of
-# the country's Chinese and Korean populations.
 LANGUAGES = frozenset({
     "Te Reo Māori",
     "Samoan",
-    "Tongan",
-    "Fijian",
     "Mandarin",
     "Cantonese",
     "Korean",
     "Japanese",
     "Hindi",
-    "Punjabi",
-    "Tamil",
     "Tagalog",
     "Vietnamese",
     "Thai",
     "Indonesian",
     "Malay",
     "Arabic",
-    "Afrikaans",
-    "Dutch",
     "Spanish",
     "French",
     "Italian",
-    "German",
-    "Portuguese",
     "Russian",
 })
 
@@ -143,45 +143,22 @@ INTERESTS = frozenset({
     # Screens and games
     "Coding",
     "Gaming",
-    "Board Games",
-    "Chess",
-    "Puzzles",
     "Anime",
-    "Movies",
-    "Hackathons",
     # Music and performance
     "Music",
-    "Karaoke",
-    "Singing",
-    "Playing an Instrument",
-    "Concerts",
-    "Theatre",
     "Dancing",
     # Making things
-    "Art",
-    "Drawing",
-    "Painting",
-    "Pottery",
+    "Painting/Drawing",
     "Design",
     "Photography",
-    "Video Editing",
     "Fashion",
-    "Sewing",
-    "Reading",
-    "Writing",
     # Food and drink
-    "Cooking",
-    "Baking",
-    "Coffee",
+    "Cooking/Baking",
     # Outdoors and travel
     "Travel",
     "Hiking",
-    "Climbing",
     "Bouldering",
-    "Surfing",
     "Skiing",
-    "Beach",
-    "Gardening",
     # Sport
     "Running",
     "Cycling",
@@ -190,24 +167,10 @@ INTERESTS = frozenset({
     "Ice Skating",
     "Football",
     "Basketball",
-    "Netball",
-    "Rugby",
-    "Cricket",
-    "Tennis",
+    "Tennis/Squash",
     "Badminton",
-    "Table Tennis",
-    "Squash",
-    "Martial Arts",
     "Gym",
-    "Yoga",
-    "Pilates",
-    # Other
-    "Museums",
-    "Debating",
-    "Volunteering",
-    "Startups",
-    "Investing",
-    "Pets",
+    "Yoga/Pilates",
 })
 
 MBTIS = frozenset({
@@ -223,15 +186,14 @@ GENDERS = frozenset({"Female", "Male", "Non-binary"})
 # and Medicine (MBChB) is the only one that reaches 6.
 YEARS = frozenset({1, 2, 3, 4, 5, 6})
 
-# The kinds of connection on offer. scoring.WEIGHTS gives each one its own
-# set of weights, so the two lists have to agree.
-MODES = frozenset({"besties", "lunch mate", "study buddy", "friend group", "campus couple"})
+# The kinds of connection on offer. A user ticks one or both, and a pair is
+# only considered when they share one. scoring.WEIGHTS gives each its own set
+# of weights, so the two lists have to agree.
+MODES = frozenset({"friendship", "date"})
 
-# A free slot is a weekday and one of three blocks, written as one string,
-# for example "MON_MORNING".
-DAYS = ("MON", "TUE", "WED", "THU", "FRI")
-BLOCKS = {"MORNING": "09-12", "AFTERNOON": "12-15", "EVENING": "15-18"}
-SLOTS = frozenset(f"{day}_{block}" for day in DAYS for block in BLOCKS)
+# Where a user is up to. Only the waiting ones take part in a run. The rest
+# are here so that Phase 2 has somewhere to put them.
+STATUSES = frozenset({"waiting", "offered", "accepted", "declined", "met"})
 
 
 def faculty_of(major: str) -> str:
@@ -242,11 +204,27 @@ def faculty_of(major: str) -> str:
     raise ValueError(f"unknown major: {major}")
 
 
+def department_of(major: str) -> str | None:
+    """Return the department that teaches one major, or None.
+
+    None means the faculty is not split into departments here, not that the
+    major is unknown.
+    """
+    for department, majors in DEPARTMENTS.items():
+        if major in majors:
+            return department
+    return None
+
+
 # What a user may state as a preference, and the registry each one draws
 # from. A key that is left out means no restriction on that feature.
 #
 # The hard preferences ban a pair in constraints.py. A pair banned there
 # cannot be matched whatever it scores.
+#
+# The sign up form must ask both of these of every user, whichever mode they
+# picked. "I do not mind" is an answer, and it is stored by leaving the key
+# out, so an absent key here means answered rather than skipped.
 HARD_PREFERENCES: dict[str, frozenset | None] = {
     # The other user's gender has to be one of these.
     "genders": GENDERS,

@@ -11,6 +11,11 @@ from pathlib import Path
 from typing import cast
 
 from . import constraints, data, llm, matcher, scoring
+from .models import pair_key
+
+# Which algorithm a run uses. There is no flag for it: picking the algorithm
+# is a decision the project makes once, not something a user chooses.
+ALGORITHM = "blossom"
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -21,9 +26,8 @@ def build_parser() -> argparse.ArgumentParser:
       --count N        how many users to make up, 100 by default
       --seed N         the seed used when making up users, so a run can be
                        repeated exactly
-      --mode NAME      the kind of connection, must be one of the modes in
-                       scoring.WEIGHTS
-      --algo NAME      one of the names in matcher.ALGORITHMS, or "cluster"
+      --min-score N    the lowest score worth offering, so a run can be
+                       loosened or tightened without touching the code
       --explain        also ask the LLM to write the match messages
       --cache PATH     where the LLM answers are kept between runs,
                        .cache/llm.json by default
@@ -33,8 +37,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--input")
     parser.add_argument("--count", type=int, default=100)
     parser.add_argument("--seed", type=int)
-    parser.add_argument("--mode", required=True, choices=list(scoring.WEIGHTS))
-    parser.add_argument("--algo", required=True, choices=(list(matcher.ALGORITHMS) + ["cluster"]))
+    parser.add_argument("--min-score", type=float, default=scoring.MIN_MATCH_SCORE)
     parser.add_argument("--explain", action="store_true")
     parser.add_argument("--cache", default=".cache/llm.json")
     parser.add_argument("--output")
@@ -52,51 +55,42 @@ def run(args: argparse.Namespace) -> dict[str, object]:
     This is the same shape the Phase 2 API sends back. The FastAPI layer
     calls this function instead of repeating the steps itself.
     """
-    if args.mode is None:
-        raise ValueError("--mode is required")
-    if args.algo is None:
-        raise ValueError("--algo is required")
-
     # read users from csv or generate test users
     if args.input is None:
         users = data.generate_users(args.count, args.seed)
     else:
         users = data.load_users(Path(args.input))
 
-    # build H
-    H = constraints.build_allow_table(users)
+    # only the people currently waiting take part in a run
+    waiting = [user for user in users if user.status == "waiting"]
 
-    # build S for the chosen mode
-    S = scoring.build_score_table(users, args.mode, H)
+    # build H, then S over the pairs worth offering
+    allowed = constraints.build_allow_table(waiting)
+    scores, modes, allowed = scoring.build_score_table(waiting, allowed, args.min_score)
 
-    # run the chosen algorithm
-    if args.algo == "cluster":
-        # no evaluation for cluster matches
-        return {"algo": args.algo, "matches": matcher.cluster(S, H)}
-
-    matches = matcher.ALGORITHMS[args.algo](S, H)
-
-    # evaluate the result
-    evaluation = scoring.evaluate(users, matches, S, H)
+    matches = matcher.ALGORITHMS[ALGORITHM](scores, allowed)
+    evaluation = scoring.evaluate(waiting, matches, scores, modes, allowed)
 
     # when --explain was given, call llm.explain for each matched pair
-    user_map = {user.id: user for user in users}
+    user_map = {user.id: user for user in waiting}
     records = []
 
     for a, b in matches:
-        entry = {"a": a, "b": b, "score": S[(a, b)]}
+        key = pair_key(a, b)
+        entry = {"a": a, "b": b, "score": scores[key], "mode": modes[key]}
         if args.explain:
-            _, breakdown = scoring.score_pair(user_map[a], user_map[b], args.mode)
+            _, _, breakdown = scoring.score_pair(user_map[a], user_map[b])
             entry["message"] = llm.explain(
                 user_map[a],
                 user_map[b],
-                S[(a, b)],
+                scores[key],
+                modes[key],
                 breakdown,
                 cache=Path(args.cache) if args.cache else None,
             )
         records.append(entry)
 
-    result = {"algo": args.algo, "matches": records}
+    result = {"algo": ALGORITHM, "matches": records}
     result.update(evaluation)
     return result
 
@@ -104,20 +98,31 @@ def run(args: argparse.Namespace) -> dict[str, object]:
 def print_table(result: dict[str, object]) -> None:
     """Print the matches to the screen.
 
-    One line per match, showing both user ids, the score, and the message if
-    one was written.
+    One line per match, showing both user ids, the kind of connection, the
+    score, and the message if one was written. The people still waiting get
+    their own block, because waiting is a normal outcome rather than a
+    failure.
     """
-    if result["algo"] == "cluster":
-        for group in cast(list[list[str]], result["matches"]):
-            print(" ".join(group))
-        return
-
     for entry in cast("list[dict[str, object]]", result["matches"]):
-        line = f"{entry['a']} {entry['b']} {round(cast(float, entry['score']), 2)}"
+        line = (
+            f"{entry['a']} {entry['b']}  {entry['mode']:<10} "
+            f"{round(cast(float, entry['score']), 2)}"
+        )
         message = entry.get("message")
         if message:
-            line += f" {message}"
+            line += f"  {message}"
         print(line)
+
+    for mode, numbers in cast("dict[str, dict]", result["modes"]).items():
+        print(
+            f"{mode:<10} {numbers['pairs']} pairs, average {numbers['average']}, "
+            f"worst off {numbers['worst_off']}"
+        )
+
+    waiting = cast("list[str]", result["waiting"])
+    print(f"waiting: {len(waiting)}")
+    if waiting:
+        print("  " + " ".join(waiting))
 
 
 def main(argv: list[str] | None = None) -> int:
