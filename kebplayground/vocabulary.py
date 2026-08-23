@@ -76,6 +76,41 @@ MAJORS: dict[str, frozenset[str]] = {
 FACULTIES = frozenset(MAJORS)
 ALL_MAJORS = frozenset().union(*MAJORS.values())
 
+# The departments a faculty is split into, and the majors each one teaches.
+#
+# Two majors in one department share most of their courses and their building,
+# so they are closer than two majors that only share a faculty.
+# features.major_similarity reads this as its middle step.
+#
+# Only Engineering is split so far. A major left out of every department is
+# compared on its faculty alone.
+DEPARTMENTS: dict[str, frozenset[str]] = {
+    "Mechanical and Mechatronics Engineering": frozenset({
+        "Mechanical Engineering",
+        "Mechatronics Engineering",
+    }),
+    "Electrical, Computer and Software Engineering": frozenset({
+        "Electrical and Electronic Engineering",
+        "Computer Systems Engineering",
+        "Software Engineering",
+    }),
+    "Engineering Science and Biomedical Engineering": frozenset({
+        "Engineering Science",
+        "Biomedical Engineering",
+    }),
+    "Civil and Environmental Engineering": frozenset({
+        "Civil Engineering",
+        "Structural Engineering",
+    }),
+    "Chemical and Materials Engineering": frozenset({
+        "Chemical and Materials Engineering",
+    }),
+    "Architecture and Planning": frozenset({
+        "Architectural Studies",
+        "Design",
+    }),
+}
+
 # Where in Auckland the user lives, used for same_area_only preference check.
 AREAS = frozenset({"North", "South", "East", "West", "Central"})
 
@@ -167,6 +202,18 @@ def faculty_of(major: str) -> str:
         if major in majors:
             return faculty
     raise ValueError(f"unknown major: {major}")
+
+
+def department_of(major: str) -> str | None:
+    """Return the department that teaches one major, or None.
+
+    None means the faculty is not split into departments here, not that the
+    major is unknown.
+    """
+    for department, majors in DEPARTMENTS.items():
+        if major in majors:
+            return department
+    return None
 
 
 # What a user may state as a preference, and the registry each one draws

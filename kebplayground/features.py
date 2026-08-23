@@ -11,9 +11,18 @@ Every function uses the same 0.0 to 1.0 range on purpose. That is what makes
 it possible for scoring.py to weigh one measurement against another.
 """
 
+from . import vocabulary
 from .models import User
 
-FACULTY_WEIGHT = 0.8
+# How major_similarity is split. The three add up to 1.0, so two people on the
+# same major score 1.0, two in the same department 0.8, and two who only share
+# a faculty 0.6.
+#
+# The department step is what stops a single faculty cohort collapsing. Every
+# pair there pays the faculty weight in full, so without it Mechatronics sits
+# exactly as far from Mechanical as from Structural.
+FACULTY_WEIGHT = 0.6
+DEPARTMENT_WEIGHT = 0.2
 MAJOR_WEIGHT = 0.2
 
 #이과 = 1, 문과 = 0 ??
@@ -32,10 +41,10 @@ FACULTY_TECHINESS = {
 def major_similarity(a: User, b: User) -> float:
     """How close the two subjects of study are.
 
-    To implement: return 1.0 when the two majors are the same.
-
-    Returning 0.0 for everything else is a fine first version. Giving a
-    middle value to two different majors in the same faculty is optional.
+    Three steps, from the widest to the narrowest: the faculty, the
+    department inside it, and the major itself. Two people in different
+    faculties get part of the faculty weight, scaled by how far apart the two
+    faculties sit on FACULTY_TECHINESS.
     """
     score = 0.0
 
@@ -47,7 +56,15 @@ def major_similarity(a: User, b: User) -> float:
         if a_score is None or b_score is None:
             unknown = a.faculty if a_score is None else b.faculty
             raise ValueError(f"no teachiness score for faculty: {unknown}")
-        score += FACULTY_WEIGHT *(1-(abs(a_score - b_score)))
+        score += FACULTY_WEIGHT * (1 - abs(a_score - b_score))
+
+    # The same major counts as the same department, so that a faculty with no
+    # departments listed can still reach 1.0.
+    department = vocabulary.department_of(a.major)
+    if a.major == b.major or (
+        department is not None and department == vocabulary.department_of(b.major)
+    ):
+        score += DEPARTMENT_WEIGHT
 
     if a.major == b.major:
         score += MAJOR_WEIGHT

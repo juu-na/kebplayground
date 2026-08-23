@@ -391,6 +391,29 @@ class TestFeatures(unittest.TestCase):
             features.major_similarity(ALICE, BOB),
         )
 
+    def test_major_similarity_puts_a_department_between_faculty_and_major(self):
+        # The case a single faculty cohort turns on: without the department
+        # step, Mechatronics would sit as far from Mechanical as from
+        # Structural.
+        engineering = "Faculty of Engineering and Design"
+        mechatronics = make_user("m", major="Mechatronics Engineering", faculty=engineering)
+        mechanical = make_user("n", major="Mechanical Engineering", faculty=engineering)
+        structural = make_user("o", major="Structural Engineering", faculty=engineering)
+
+        self.assertEqual(features.major_similarity(mechatronics, mechatronics), 1.0)
+        self.assertGreater(
+            features.major_similarity(mechatronics, mechanical),
+            features.major_similarity(mechatronics, structural),
+        )
+
+    def test_the_same_major_scores_full_marks_without_a_department(self):
+        # Only Engineering is split, so a Science pair has no department to
+        # share and still has to reach 1.0.
+        chemists = [make_user(uid, major="Chemistry", faculty="Faculty of Science")
+                    for uid in ("p", "q")]
+        self.assertIsNone(vocabulary.department_of("Chemistry"))
+        self.assertEqual(features.major_similarity(*chemists), 1.0)
+
     def test_each_shared_language_scores_higher_than_the_last(self):
         spoken = ["Korean", "Mandarin", "Japanese"]
         polyglot = make_user("p", languages=frozenset(spoken))
@@ -472,6 +495,17 @@ class TestFeatures(unittest.TestCase):
         half = make_user("z", major="Law", faculty="Faculty of Science")
         self.assertEqual(features.view(picky, both)["major"], 1.0)
         self.assertLess(features.view(picky, half)["major"], 1.0)
+
+    def test_every_department_teaches_registered_majors_of_one_faculty(self):
+        for department, majors in vocabulary.DEPARTMENTS.items():
+            with self.subTest(department=department):
+                self.assertEqual(majors - vocabulary.ALL_MAJORS, frozenset())
+                faculties = {vocabulary.faculty_of(major) for major in majors}
+                self.assertEqual(len(faculties), 1)
+
+    def test_no_major_is_taught_by_two_departments(self):
+        counted = [major for majors in vocabulary.DEPARTMENTS.values() for major in majors]
+        self.assertEqual(len(counted), len(set(counted)))
 
     def test_every_faculty_has_a_teachiness_score(self):
         # A faculty missing here makes major_similarity raise on anyone
