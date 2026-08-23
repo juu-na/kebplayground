@@ -10,7 +10,6 @@ import itertools
 from .models import AllowTable, ModeTable, ScoreTable, User, pair_key
 from . import features
 
-
 # How much each measurement counts, for each mode.
 # The weights inside one mode are to add up to 1.0. That is what keeps the
 # final score between 0.0 and 1.0 without any further adjustment.
@@ -39,6 +38,7 @@ WEIGHTS: dict[str, dict[str, float]] = {
 # The lowest a pair may score and still be worth offering. A few real matches
 # are better than many average ones, so a pair under this is left out and both
 # users keep waiting. cli.py can override it with --min-score.
+# 0.6 is experimentally chosen and works well for generated data.
 MIN_MATCH_SCORE = 0.6
 
 
@@ -51,7 +51,9 @@ def _direction(seen: dict[str, float], weights: dict[str, float]) -> float:
     question nobody asked.
     """
     live = {name: weights[name] for name in seen}
-    return sum(seen[name] * weight for name, weight in live.items()) / sum(live.values())
+    return sum(seen[name] * weight for name, weight in live.items()) / sum(
+        live.values()
+    )
 
 
 def score_pair(a: User, b: User) -> tuple[float, str, dict[str, float]]:
@@ -94,6 +96,8 @@ def score_pair(a: User, b: User) -> tuple[float, str, dict[str, float]]:
         if best is None or score > best[0] or (score == best[0] and mode == "date"):
             best = (score, mode, seen)
 
+    if best is None:
+        raise ValueError(f"{a.id} and {b.id} cannot be scored under any known mode")
     return best
 
 
@@ -136,9 +140,7 @@ def build_score_table(
     return scores, modes, live
 
 
-# Ways of judging a finished run.
-# These are what make it possible to compare one algorithm against another,
-# instead of only running them.
+# Ways of judging a finished run, used to compare one algorithm against another.
 
 
 def average_score(matches: list[tuple[str, str]], scores: ScoreTable) -> float:
@@ -167,7 +169,9 @@ def unmatched_count(users: list[User], matches: list[tuple[str, str]]) -> int:
     matched_ids = {uid for pair in matches for uid in pair}
     strangers = matched_ids - known
     if strangers:
-        raise ValueError(f"matched somebody who is not in the list: {sorted(strangers)}")
+        raise ValueError(
+            f"matched somebody who is not in the list: {sorted(strangers)}"
+        )
     return len(known - matched_ids)
 
 
