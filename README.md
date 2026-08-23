@@ -3,8 +3,8 @@
 Matches university students with each other, based on how well their
 subjects, interests, languages and personalities line up.
 
-A user signs up once, says whether they are open to friendship or a date or
-both, and says what they are after in the other person. That choice decides
+A user signs up once, says whether they are after friendship or a date and
+says what they are after in the other person. That choice decides
 which things count for more when working out a score, and a stated preference
 lifts whatever it speaks for. A pair is scored from both sides and keeps the
 lower of the two, so a match one person is lukewarm about is a lukewarm match.
@@ -56,7 +56,7 @@ uv run python -m kebplayground.cli
 Every module is written, so this runs the whole pipeline and prints the
 matches, then the people still waiting for one.
 
-A user says in their profile which kinds of connection they are open to, so
+A user says in their profile which kind of connection they are after, so
 there is no flag for it. A run covers everybody who is waiting.
 
 ### Arguments:
