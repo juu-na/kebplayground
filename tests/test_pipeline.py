@@ -361,8 +361,8 @@ class TestData(unittest.TestCase):
             path = Path(tmp) / "users.csv"
             # Omit exactly one required column so the failure is deterministic.
             path.write_text(
-                "id,major,year,age,mbti,languages,gender,area,free_slots,interests,mode\n"
-                "a,Law,2,20,INTJ,Korean,Female,Central,MON_MORNING,Coding,study buddy\n"
+                "id,major,year,age,mbti,languages,gender,area,interests,mode,preferences\n"
+                "a,Law,2,20,INTJ,Korean,Female,Central,Coding,friendship,{}\n"
             )
             with self.assertRaisesRegex((KeyError, ValueError), r"\bfaculty\b"):
                 data.load_users(path)
