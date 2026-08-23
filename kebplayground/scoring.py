@@ -7,7 +7,7 @@ because llm.py needs them to explain why a pair was matched.
 
 import itertools
 
-from .models import AllowTable, ScoreTable, User, pair_key
+from .models import AllowTable, ModeTable, ScoreTable, User, pair_key
 from . import features
 
 
