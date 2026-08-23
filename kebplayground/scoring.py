@@ -57,7 +57,7 @@ def _direction(seen: dict[str, float], weights: dict[str, float]) -> float:
 
 
 def score_pair(a: User, b: User) -> tuple[float, str, dict[str, float]]:
-    """Score one pair, under the best kind of connection they both want.
+    """Score one pair, under the kind of connection they both want.
 
     Input: two users.
     Output: the score, the mode it was scored under, and the measurements it
@@ -73,32 +73,21 @@ def score_pair(a: User, b: User) -> tuple[float, str, dict[str, float]]:
     that was already allowed. Somebody who said 20 to 30 has not said whether
     21 or 29 suits them better.
 
-    Users open to nothing in common should have been banned by H, so reaching
-    this with no shared mode is a mistake worth hearing about.
+    Two users after different things should have been banned by H, so
+    reaching this without a shared mode is a mistake worth hearing about.
     """
-    shared = a.modes & b.modes
-    if not shared:
-        raise ValueError(f"{a.id} and {b.id} want no kind of connection in common")
+    if a.mode != b.mode:
+        raise ValueError(f"{a.id} wants {a.mode} and {b.id} wants {b.mode}")
 
-    best = None
-    for mode in sorted(shared):
-        weights = WEIGHTS[mode]
-        forwards = _direction(features.view(a, b), weights)
-        backwards = _direction(features.view(b, a), weights)
-        # The breakdown comes from whichever side liked it less, since that
-        # is the side a message has to win over.
-        if forwards <= backwards:
-            score, seen = forwards, features.view(a, b)
-        else:
-            score, seen = backwards, features.view(b, a)
-        # A tie goes to date, because somebody who ticked both and found a
-        # good date match is better served by the date message.
-        if best is None or score > best[0] or (score == best[0] and mode == "date"):
-            best = (score, mode, seen)
+    weights = WEIGHTS[a.mode]
+    forwards = _direction(features.view(a, b), weights)
+    backwards = _direction(features.view(b, a), weights)
 
-    if best is None:
-        raise ValueError(f"{a.id} and {b.id} cannot be scored under any known mode")
-    return best
+    # The breakdown comes from whichever side liked it less, since that is
+    # the side a message has to win over.
+    if forwards <= backwards:
+        return forwards, a.mode, features.view(a, b)
+    return backwards, a.mode, features.view(b, a)
 
 
 def build_score_table(

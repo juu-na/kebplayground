@@ -174,6 +174,10 @@ def faculty_of(major: str) -> str:
 #
 # The hard preferences ban a pair in constraints.py. A pair banned there
 # cannot be matched whatever it scores.
+#
+# The sign up form must ask both of these of every user, whichever mode they
+# picked. "I do not mind" is an answer, and it is stored by leaving the key
+# out, so an absent key here means answered rather than skipped.
 HARD_PREFERENCES: dict[str, frozenset | None] = {
     # The other user's gender has to be one of these.
     "genders": GENDERS,

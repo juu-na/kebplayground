@@ -39,7 +39,6 @@ KEB = data.Cohort(
         "Hindi": 3,
     },
     mode_weights={"friendship": 9, "date": 1},
-    both_modes=0.1,
 )
 
 # The floors reported, MIN_MATCH_SCORE among them.

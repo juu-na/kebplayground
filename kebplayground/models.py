@@ -45,9 +45,12 @@ class User:
     # whether two users live in the same one.
     area: str
     interests: frozenset[str]
-    # The kinds of connection the user is open to, one or both of
-    # "friendship" and "date". A pair is only considered when they share one.
-    modes: frozenset[str]
+    # The kind of connection the user is after, one of "friendship" and
+    # "date". A pair is only considered when both want the same one.
+    #
+    # One, not a set. A date user states a gender preference, and somebody
+    # open to both would have no way of stating a different one for each.
+    mode: str
     # Anything extra, such as a preferred age range or gender preference.
     preferences: dict[str, object] = field(default_factory=dict)
     # Where the user is up to. Only "waiting" users take part in a run.

@@ -42,7 +42,7 @@ def is_allowed(a: User, b: User) -> bool:
 
     Any one of these on its own bans the pair:
     - the same user on both sides
-    - the two users are open to no kind of connection in common
+    - the two users are after different kinds of connection
     - one user's stated preferences rule the other out
 
     Returning False as soon as one rule fails keeps this easy to read.
@@ -54,7 +54,7 @@ def is_allowed(a: User, b: User) -> bool:
     if a.id == b.id:
         return False
 
-    if a.modes.isdisjoint(b.modes):
+    if a.mode != b.mode:
         return False
 
     # Both ways round. A preference stated by either user bans the pair.

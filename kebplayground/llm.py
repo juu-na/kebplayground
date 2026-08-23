@@ -94,7 +94,7 @@ def describe(user: User) -> str:
         f"User {user.id}: {user.major} {user.faculty}, year {user.year}, "
         f"age {user.age}, languages {sorted(user.languages)}, "
         f"interests {sorted(user.interests)}, area {user.area}, "
-        f"open to {' and '.join(sorted(user.modes))}"
+        f"after {user.mode}"
     )
 
 

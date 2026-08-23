@@ -38,10 +38,6 @@ _INTERESTS = sorted(vocabulary.INTERESTS)
 LANGUAGES_EACH = (1, 3)
 INTERESTS_EACH = (5, 10)
 
-# How often a made up user is open to both kinds of connection rather than
-# one. Most people want one thing.
-BOTH_MODES = 0.3
-
 # How many preferences a made up user states, and how often each count comes
 # up. Most people take anyone or nearly anyone, and a few are specific enough
 # to rule out almost everybody, so the weights fall away sharply.
@@ -74,7 +70,7 @@ REQUIRED_FIELDS = [
     "gender",
     "area",
     "interests",
-    "modes",
+    "mode",
     "preferences",
 ]
 
@@ -126,19 +122,14 @@ def _decode_preferences(val: str) -> dict[str, object]:
     return preferences
 
 
-def _parse_modes(val: str) -> frozenset[str]:
-    """Read the modes column, turning down a user who is open to nothing.
-
-    An empty set would mean a user nobody can ever be paired with, which is
-    the same trap as an empty preference set.
-    """
-    modes = _parse_frozenset(val)
-    if not modes:
-        raise ValueError("a user has to be open to at least one mode")
-    unknown = modes - vocabulary.MODES
-    if unknown:
-        raise ValueError(f"unknown mode: {', '.join(sorted(unknown))}")
-    return modes
+def _parse_mode(val: str) -> str:
+    """Read the mode column, turning down a user who is after nothing."""
+    mode = (val or "").strip()
+    if not mode:
+        raise ValueError("a user has to be after one mode")
+    if mode not in vocabulary.MODES:
+        raise ValueError(f"unknown mode: {mode}")
+    return mode
 
 
 def _parse_frozenset(val: str) -> frozenset[str]:
@@ -171,7 +162,7 @@ def load_users(path: Path) -> list[User]:
                 gender=str(row["gender"]),
                 area=str(row["area"]),
                 interests=_parse_frozenset(row["interests"]),
-                modes=_parse_modes(row["modes"]),
+                mode=_parse_mode(row["mode"]),
                 preferences=_decode_preferences(row["preferences"]),
                 status=row.get(STATUS_FIELD) or "waiting",
             )
@@ -220,7 +211,6 @@ class Cohort:
     mode_weights: dict[str, float] | None = None
     languages_each: tuple[int, int] = LANGUAGES_EACH
     interests_each: tuple[int, int] = INTERESTS_EACH
-    both_modes: float = BOTH_MODES
 
     def __post_init__(self) -> None:
         _check("faculties", self.faculties, vocabulary.FACULTIES)
@@ -304,17 +294,15 @@ def _make_age(rng: random.Random, cohort: "Cohort") -> int:
     return rng.choices(range(low, high + 1), weights=cohort.age_weights)[0]
 
 
-def _make_modes(rng: random.Random, cohort: "Cohort" = EVERYONE) -> frozenset[str]:
-    """One mode most of the time, both now and then.
+def _make_mode(rng: random.Random, cohort: "Cohort" = EVERYONE) -> str:
+    """The one kind of connection a made up user is after.
 
-    A cohort open to one mode gives everybody that one, without drawing.
+    A cohort after one mode gives everybody that one, without drawing.
     """
     pool = _pool(cohort.mode_weights, _MODES)
     if len(pool) == 1:
-        return frozenset(pool)
-    if rng.random() < cohort.both_modes:
-        return frozenset(pool)
-    return frozenset({_draw_one(rng, pool, cohort.mode_weights)})
+        return pool[0]
+    return _draw_one(rng, pool, cohort.mode_weights)
 
 
 def _make_preferences(rng: random.Random) -> dict[str, object]:
@@ -382,7 +370,7 @@ def generate_users(
             gender=_draw_one(rng, genders, cohort.gender_weights),
             area=rng.choice(_AREAS),
             interests=frozenset(rng.sample(_INTERESTS, k=num_interests)),
-            modes=_make_modes(rng, cohort),
+            mode=_make_mode(rng, cohort),
             preferences=_make_preferences(rng),
             status="waiting",
         )
@@ -411,7 +399,7 @@ def save_users(users: list[User], path: Path) -> None:
                     "gender": u.gender,
                     "area": u.area,
                     "interests": SEPARATOR.join(sorted(u.interests)),
-                    "modes": SEPARATOR.join(sorted(u.modes)),
+                    "mode": u.mode,
                     "preferences": _encode_preferences(u.preferences),
                     STATUS_FIELD: u.status,
                 }

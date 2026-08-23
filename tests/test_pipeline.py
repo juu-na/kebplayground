@@ -43,7 +43,7 @@ def make_user(uid: str, **overrides: object) -> User:
         "gender": "Female",
         "area": "Central",
         "interests": frozenset({"Coding", "Hiking"}),
-        "modes": frozenset({"friendship"}),
+        "mode": "friendship",
         "preferences": {},
         "status": "waiting",
     }
@@ -52,16 +52,15 @@ def make_user(uid: str, **overrides: object) -> User:
 
 
 # Three users, covering the cases the pipeline has to tell apart.
-# ALICE and BOB share friendship and could sensibly be matched. CHARLIE only
-# wants a date, so shares nothing with ALICE, and studies at the other end of
-# the teachiness scale.
+# ALICE and BOB both want friendship and could sensibly be matched. CHARLIE
+# wants a date, so pairs with neither, and studies at the other end of the
+# teachiness scale.
 ALICE = make_user("a")
 BOB = make_user(
     "b",
     age=21,
     languages=frozenset({"Korean", "Mandarin"}),
     interests=frozenset({"Coding"}),
-    modes=frozenset({"friendship", "date"}),
 )
 CHARLIE = make_user(
     "c",
@@ -71,7 +70,7 @@ CHARLIE = make_user(
     languages=frozenset({"Mandarin"}),
     area="South",
     interests=frozenset({"Running"}),
-    modes=frozenset({"date"}),
+    mode="date",
 )
 USERS = [ALICE, BOB, CHARLIE]
 
@@ -204,14 +203,12 @@ class TestCohort(unittest.TestCase):
         for user in data.generate_users(20, seed=1, cohort=cohort):
             with self.subTest(user=user.id):
                 self.assertIn(user.year, (1, 2))
-                self.assertEqual(user.modes, frozenset({"friendship"}))
+                self.assertEqual(user.mode, "friendship")
 
     def test_weighted_modes_follow_the_weights(self):
         cohort = data.Cohort(mode_weights={"friendship": 9, "date": 1})
-        modes = [user.modes for user in data.generate_users(200, seed=1, cohort=cohort)]
-        only_friendship = sum(1 for m in modes if m == frozenset({"friendship"}))
-        only_date = sum(1 for m in modes if m == frozenset({"date"}))
-        self.assertGreater(only_friendship, only_date * 3)
+        modes = [user.mode for user in data.generate_users(200, seed=1, cohort=cohort)]
+        self.assertGreater(modes.count("friendship"), modes.count("date") * 3)
 
     def test_weighted_ages_stay_inside_the_range(self):
         cohort = data.Cohort(ages=(19, 21), age_weights=(1, 8, 1))
@@ -302,8 +299,7 @@ class TestData(unittest.TestCase):
                 self.assertIn(user.gender, vocabulary.GENDERS)
                 self.assertIn(user.area, vocabulary.AREAS)
                 self.assertIn(user.status, vocabulary.STATUSES)
-                self.assertTrue(user.modes, "a user has to want something")
-                self.assertEqual(user.modes - vocabulary.MODES, frozenset())
+                self.assertIn(user.mode, vocabulary.MODES)
                 self.assertEqual(user.languages - vocabulary.LANGUAGES, frozenset())
                 self.assertEqual(user.interests - vocabulary.INTERESTS, frozenset())
 
@@ -575,12 +571,11 @@ class TestConstraints(unittest.TestCase):
         same_id = make_user("a", age=30, mbti="ENFP", area="South")
         self.assertFalse(constraints.is_allowed(ALICE, same_id))
 
-    def test_wanting_no_connection_in_common_is_banned(self):
-        dater = make_user("d", modes=frozenset({"date"}))
+    def test_wanting_a_different_connection_is_banned(self):
+        dater = make_user("d", mode="date")
         self.assertFalse(constraints.is_allowed(ALICE, dater))
 
-    def test_one_shared_connection_is_enough(self):
-        # BOB is open to both, ALICE only to friendship.
+    def test_wanting_the_same_connection_is_allowed(self):
         self.assertTrue(constraints.is_allowed(ALICE, BOB))
 
     def test_a_gender_preference_rules_the_other_out(self):
@@ -631,7 +626,7 @@ class TestConstraints(unittest.TestCase):
         self.assertEqual(len(table), 3)  # ab, ac, bc
         self.assertTrue(table[("a", "b")])   # both want friendship
         self.assertFalse(table[("a", "c")])  # friendship against date
-        self.assertTrue(table[("b", "c")])   # both want a date
+        self.assertFalse(table[("b", "c")])  # friendship against date
 
     def test_the_allow_table_holds_one_entry_for_every_pair(self):
         users = data.generate_users(12, seed=1)
@@ -680,14 +675,14 @@ class TestScoring(unittest.TestCase):
         score, mode, breakdown = scoring.score_pair(ALICE, BOB)
         self.assertGreaterEqual(score, 0.0)
         self.assertLessEqual(score, 1.0)
-        self.assertIn(mode, ALICE.modes & BOB.modes)
+        self.assertEqual(mode, ALICE.mode)
         # Area is only measured when somebody asked for it, so it may be out.
         self.assertLessEqual(set(breakdown), set(features.FEATURES))
 
-    def test_score_pair_turns_down_a_pair_wanting_nothing_in_common(self):
+    def test_score_pair_turns_down_a_pair_wanting_different_things(self):
         # H should have banned it long before here.
         with self.assertRaises(ValueError):
-            scoring.score_pair(ALICE, make_user("d", modes=frozenset({"date"})))
+            scoring.score_pair(ALICE, make_user("d", mode="date"))
 
     def test_a_pair_is_scored_by_whichever_side_likes_it_less(self):
         # picky gets INTJ lifted to 1.0 looking at plain. plain asked for
