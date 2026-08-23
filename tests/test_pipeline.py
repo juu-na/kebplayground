@@ -41,7 +41,7 @@ def make_user(uid: str, **overrides: object) -> User:
         "languages": frozenset({"Korean"}),
         "gender": "Female",
         "area": "Central",
-        "interests": frozenset({"Chess", "Hiking"}),
+        "interests": frozenset({"Coding", "Hiking"}),
         "modes": frozenset({"friendship"}),
         "preferences": {},
         "status": "waiting",
@@ -59,7 +59,7 @@ BOB = make_user(
     "b",
     age=21,
     languages=frozenset({"Korean", "Mandarin"}),
-    interests=frozenset({"Chess"}),
+    interests=frozenset({"Coding"}),
     modes=frozenset({"friendship", "date"}),
 )
 CHARLIE = make_user(
@@ -69,7 +69,7 @@ CHARLIE = make_user(
     age=30,
     languages=frozenset({"Mandarin"}),
     area="South",
-    interests=frozenset({"Tennis"}),
+    interests=frozenset({"Running"}),
     modes=frozenset({"date"}),
 )
 USERS = [ALICE, BOB, CHARLIE]
@@ -288,7 +288,7 @@ class TestData(unittest.TestCase):
             # Omit exactly one required column so the failure is deterministic.
             path.write_text(
                 "id,major,year,age,mbti,languages,gender,area,free_slots,interests,mode\n"
-                "a,Law,2,20,INTJ,Korean,Female,Central,MON_MORNING,Chess,study buddy\n"
+                "a,Law,2,20,INTJ,Korean,Female,Central,MON_MORNING,Coding,study buddy\n"
             )
             with self.assertRaisesRegex((KeyError, ValueError), r"\bfaculty\b"):
                 data.load_users(path)
@@ -307,7 +307,7 @@ class TestFeatures(unittest.TestCase):
                         self.assertLessEqual(fn(x, y), 1.0)
 
     def test_interest_similarity_is_shared_interests_over_all_interests(self):
-        # Chess is shared, Hiking is not.
+        # Coding is shared, Hiking is not.
         self.assertAlmostEqual(features.interest_similarity(ALICE, BOB), 0.5)
 
     def test_major_similarity_rewards_the_same_subject(self):

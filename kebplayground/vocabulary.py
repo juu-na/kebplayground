@@ -15,10 +15,9 @@ and what a user is allowed to state as a preference.
 # often name, not the full catalogue, so that two users matching on a major
 # still means something.
 #
-# A few majors are taught in more than one faculty at UoA. Psychology,
-# Mathematics, Statistics and Geography are also Arts subjects, and Economics
-# is also an Arts subject. Each one is listed under a single faculty here, so
-# that faculty_of gives one answer.
+# A few majors are taught in more than one faculty at UoA. Mathematics,
+# Statistics and Economics are also Arts subjects. Each one is listed under a
+# single faculty here, so that faculty_of gives one answer.
 MAJORS: dict[str, frozenset[str]] = {
     "Faculty of Engineering and Design": frozenset({
         # The ten accredited BE(Hons) specialisations.
@@ -32,21 +31,16 @@ MAJORS: dict[str, frozenset[str]] = {
         "Mechatronics Engineering",
         "Software Engineering",
         "Structural Engineering",
-        # The three non-engineering degrees in the same faculty.
+        # The two non-engineering degrees in the same faculty.
         "Architectural Studies",
         "Design",
-        "Urban Planning",
     }),
     "Faculty of Science": frozenset({
         "Chemistry",
         "Computer Science",
         "Data Science",
-        "Environmental Science",
-        "Marine Science",
         "Mathematics",
         "Physics",
-        "Physiology",
-        "Psychology",
         "Statistics",
     }),
     "Faculty of Medical and Health Sciences": frozenset({
@@ -59,80 +53,51 @@ MAJORS: dict[str, frozenset[str]] = {
         "Pharmacy",
     }),
     "Business School": frozenset({
-        # The thirteen BCom majors.
+        # The BCom majors students most often take.
         "Accounting",
-        "Business Analytics",
-        "Commercial Law",
         "Economics",
         "Finance",
-        "Information Systems",
-        "Innovation and Entrepreneurship",
-        "International Business",
         "Management",
         "Marketing",
-        "Operations and Supply Chain Management",
-        "Property",
-        "Taxation",
     }),
     "Auckland Law School": frozenset({
         "Law",
     }),
     "Faculty of Arts and Education": frozenset({
-        "Anthropology",
         "Communication",
-        "Criminology",
         "Education",
         "English",
         "Fine Arts",
         "History",
-        "Linguistics",
-        "Media and Screen Studies",
         "Music",
-        "Māori Studies",
-        "Philosophy",
-        "Politics and International Relations",
-        "Sociology",
     }),
 }
 
 FACULTIES = frozenset(MAJORS)
 ALL_MAJORS = frozenset().union(*MAJORS.values())
 
-# Where in Auckland the user lives, so a commute can be worked out without
-# asking anyone for a distance.
+# Where in Auckland the user lives, used for same_area_only preference check.
 AREAS = frozenset({"North", "South", "East", "West", "Central"})
 
 # What a user speaks besides English. Everyone is assumed to speak English, so
 # it is not listed here and cannot be stated as a preference.
-#
-# The list follows the languages the 2023 Census counted most speakers for in
-# New Zealand, weighted towards Auckland, which is home to about 70 percent of
-# the country's Chinese and Korean populations.
 LANGUAGES = frozenset({
     "Te Reo Māori",
     "Samoan",
-    "Tongan",
-    "Fijian",
     "Mandarin",
     "Cantonese",
     "Korean",
     "Japanese",
     "Hindi",
-    "Punjabi",
-    "Tamil",
     "Tagalog",
     "Vietnamese",
     "Thai",
     "Indonesian",
     "Malay",
     "Arabic",
-    "Afrikaans",
-    "Dutch",
     "Spanish",
     "French",
     "Italian",
-    "German",
-    "Portuguese",
     "Russian",
 })
 
@@ -143,45 +108,22 @@ INTERESTS = frozenset({
     # Screens and games
     "Coding",
     "Gaming",
-    "Board Games",
-    "Chess",
-    "Puzzles",
     "Anime",
-    "Movies",
-    "Hackathons",
     # Music and performance
     "Music",
-    "Karaoke",
-    "Singing",
-    "Playing an Instrument",
-    "Concerts",
-    "Theatre",
     "Dancing",
     # Making things
-    "Art",
-    "Drawing",
-    "Painting",
-    "Pottery",
+    "Painting/Drawing",
     "Design",
     "Photography",
-    "Video Editing",
     "Fashion",
-    "Sewing",
-    "Reading",
-    "Writing",
     # Food and drink
-    "Cooking",
-    "Baking",
-    "Coffee",
+    "Cooking/Baking",
     # Outdoors and travel
     "Travel",
     "Hiking",
-    "Climbing",
     "Bouldering",
-    "Surfing",
     "Skiing",
-    "Beach",
-    "Gardening",
     # Sport
     "Running",
     "Cycling",
@@ -190,24 +132,10 @@ INTERESTS = frozenset({
     "Ice Skating",
     "Football",
     "Basketball",
-    "Netball",
-    "Rugby",
-    "Cricket",
-    "Tennis",
+    "Tennis/Squash",
     "Badminton",
-    "Table Tennis",
-    "Squash",
-    "Martial Arts",
     "Gym",
-    "Yoga",
-    "Pilates",
-    # Other
-    "Museums",
-    "Debating",
-    "Volunteering",
-    "Startups",
-    "Investing",
-    "Pets",
+    "Yoga/Pilates",
 })
 
 MBTIS = frozenset({
