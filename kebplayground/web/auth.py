@@ -8,7 +8,13 @@ session, so a personal account cannot sign in by editing the request.
 import os
 
 from authlib.integrations.starlette_client import OAuth
+from dotenv import load_dotenv
 from fastapi import Request
+
+# Read before the client is registered below, which happens while this module
+# is being imported. app.py loads the same file, but only after importing
+# this one, which would be too late for the client id.
+load_dotenv()
 
 # Which addresses may sign in. An env var rather than a constant, so the door
 # can be widened at deploy time without a code change.
