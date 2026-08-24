@@ -17,6 +17,7 @@ import threading
 import uuid
 from pathlib import Path
 
+from dotenv import load_dotenv
 from fastapi import FastAPI, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
@@ -25,6 +26,10 @@ from fastapi.templating import Jinja2Templates
 from .. import data, pipeline, vocabulary
 from ..models import User
 from . import db
+
+# Local dev reads ADMIN_TOKEN and friends from .env. Deployed, the real
+# environment is already set and load_dotenv finds nothing.
+load_dotenv()
 
 HERE = Path(__file__).parent
 
