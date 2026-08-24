@@ -24,7 +24,7 @@ TOKEN = "test-token"
 
 GOOD_FORM = {
     "name": "Ana",
-    "contact": "@ana",
+    "contact": "ana@aucklanduni.ac.nz",
     "age": "21",
     "major": "Computer Science",
     "year": "2",
@@ -34,6 +34,7 @@ GOOD_FORM = {
     "mode": "friendship",
     "languages": ["Korean"],
     "interests": ["Coding"],
+    "pref_genders": ["Female", "Male", "Non-binary"],
 }
 
 
@@ -91,6 +92,23 @@ class TestSignup(WebTest):
         answer = self.client.post("/signup", data=bad)
         self.assertIn("Ana", answer.text)
 
+    def test_signup_turns_down_something_that_is_not_an_email(self) -> None:
+        bad = dict(GOOD_FORM, contact="@ana")
+        answer = self.client.post("/signup", data=bad)
+        self.assertEqual(answer.status_code, 400)
+        self.assertEqual(store.list_users(), [])
+
+    def test_signup_needs_at_least_one_gender_ticked(self) -> None:
+        bad = dict(GOOD_FORM)
+        bad["pref_genders"] = []
+        answer = self.client.post("/signup", data=bad)
+        self.assertEqual(answer.status_code, 400)
+        self.assertEqual(store.list_users(), [])
+
+    def test_friendship_is_offered_first(self) -> None:
+        page = self.client.get("/").text
+        self.assertLess(page.index('value="friendship"'), page.index('value="date"'))
+
     def test_preferences_round_trip_through_the_store(self) -> None:
         form = dict(GOOD_FORM, pref_age_min="19", pref_age_max="25")
         form["pref_genders"] = ["Female", "Non-binary"]
@@ -127,7 +145,7 @@ class TestResultPages(WebTest):
         entry = run_doc["result"]["matches"][0]
         page = self.client.get(f"/me/{entry['a']}")
         self.assertIn("meet", page.text)
-        self.assertIn("Reach them at", page.text)
+        self.assertIn("Email them at", page.text)
         # The mocked LLM answers None, so the message is the plain fallback.
         self.assertIn("You two were matched on", page.text)
 

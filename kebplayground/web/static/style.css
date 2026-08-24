@@ -71,6 +71,12 @@ input:not([type="checkbox"]):not([type="radio"]), select {
   background: var(--card);
 }
 
+.hint {
+  margin: 0 0 0.4rem;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
 .choices {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(9rem, 1fr));

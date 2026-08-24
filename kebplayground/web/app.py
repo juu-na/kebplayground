@@ -12,6 +12,7 @@ in flight.
 import csv
 import io
 import os
+import re
 import secrets
 import threading
 import uuid
@@ -42,6 +43,20 @@ store = db.make_store()
 # Held while a match run is going, so two organisers cannot start one each.
 run_lock = threading.Lock()
 
+# The order the modes are offered in, friendship first. Anything registered
+# later and not named here comes after, so vocabulary stays the source.
+MODE_ORDER = ("friendship", "date")
+
+# What a contact has to look like. Deliberately loose: one @, a dot after it,
+# no spaces. Anything tighter turns down addresses that work.
+EMAIL = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+
+def _modes_in_order() -> list[str]:
+    known = [mode for mode in MODE_ORDER if mode in vocabulary.MODES]
+    return known + sorted(set(vocabulary.MODES) - set(known))
+
+
 # What the signup form offers, sorted once. Majors are grouped by faculty so
 # the template renders one optgroup per faculty.
 OPTIONS = {
@@ -55,7 +70,7 @@ OPTIONS = {
     "areas": sorted(vocabulary.AREAS),
     "languages": sorted(vocabulary.LANGUAGES),
     "interests": sorted(vocabulary.INTERESTS),
-    "modes": sorted(vocabulary.MODES),
+    "modes": _modes_in_order(),
 }
 
 
@@ -82,8 +97,8 @@ def _parse_signup(form: dict[str, object], picked: dict[str, list[str]]) -> tupl
     contact = str(form.get("contact", "")).strip()
     if not name:
         raise ValueError("name is missing")
-    if not contact:
-        raise ValueError("contact is missing")
+    if not EMAIL.match(contact):
+        raise ValueError("email does not look like an address")
 
     def choice(field: str, registered: frozenset) -> str:
         value = str(form.get(field, "")).strip()
@@ -109,10 +124,13 @@ def _parse_signup(form: dict[str, object], picked: dict[str, list[str]]) -> tupl
     if not interests <= vocabulary.INTERESTS:
         raise ValueError("interests named something not registered")
 
+    # At least one gender has to be ticked. Ticking every one is how a user
+    # says they do not mind, which reads more clearly than an empty answer.
     preferences: dict[str, object] = {}
     pref_genders = frozenset(picked.get("pref_genders", []))
-    if pref_genders:
-        preferences["genders"] = pref_genders
+    if not pref_genders:
+        raise ValueError("pick at least one gender to be matched with")
+    preferences["genders"] = pref_genders
     age_low = str(form.get("pref_age_min", "")).strip()
     age_high = str(form.get("pref_age_max", "")).strip()
     if age_low or age_high:

@@ -12,8 +12,8 @@
   </div>
 
   <div class="field">
-    <label for="contact">Contact (Instagram or phone)</label>
-    <input id="contact" name="contact" required value="{{ form.get('contact', '') }}">
+    <label for="contact">Email</label>
+    <input id="contact" name="contact" type="email" required value="{{ form.get('contact', '') }}">
   </div>
 
   <div class="field">
@@ -101,7 +101,8 @@
   </fieldset>
 
   <fieldset class="field">
-    <legend>Their gender (leave empty for no preference)</legend>
+    <legend>Which gender(s) do you want to be matched with?</legend>
+    <p class="hint">Tick every one you are happy with.</p>
     {% for gender in options.genders %}
     <label class="choice"><input type="checkbox" name="pref_genders" value="{{ gender }}"
       {% if gender in form.get('pref_genders', []) %}checked{% endif %}> {{ gender }}</label>
