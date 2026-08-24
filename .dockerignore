@@ -1,0 +1,14 @@
+.venv
+.git
+.github
+.cache
+.vscode
+.claude
+.env
+.env.example
+*.db
+tests
+scripts
+main.py
+README.md
+ARCHITECTURE.md
