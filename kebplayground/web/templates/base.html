@@ -1,0 +1,20 @@
+<!doctype html>
+<!-- Template context is frozen. Restyle through static/style.css, or adjust
+     markup inside the blocks, without renaming any form field. -->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}keb playground{% endblock %}</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <script src="/static/htmx.min.js" defer></script>
+</head>
+<body>
+  <header class="site-header">
+    <a href="/">keb playground</a>
+  </header>
+  <main class="content">
+    {% block content %}{% endblock %}
+  </main>
+</body>
+</html>

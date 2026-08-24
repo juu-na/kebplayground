@@ -1,0 +1,117 @@
+/* The whole look lives here. The design team can replace this file without
+   touching any template or route. Light mode only. */
+
+:root {
+  --ink: #1c1917;
+  --muted: #78716c;
+  --line: #e7e5e4;
+  --paper: #fafaf9;
+  --card: #ffffff;
+  --accent: #d97706;
+  --accent-ink: #ffffff;
+  --danger: #b91c1c;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  color: var(--ink);
+  background: var(--paper);
+  line-height: 1.5;
+}
+
+.site-header {
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid var(--line);
+}
+.site-header a {
+  color: var(--ink);
+  text-decoration: none;
+  font-weight: 600;
+}
+
+.content {
+  max-width: 28rem;
+  margin: 0 auto;
+  padding: 1rem 1rem 4rem;
+}
+
+h1 { font-size: 1.5rem; }
+h2 { font-size: 1.1rem; }
+
+.card {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 1.25rem;
+  margin: 1rem 0;
+}
+
+.centre { text-align: center; }
+
+.field { margin: 1rem 0; border: 0; padding: 0; }
+.field label, .field legend {
+  display: block;
+  font-weight: 600;
+  font-size: 0.9rem;
+  margin-bottom: 0.35rem;
+}
+
+input, select, button {
+  font: inherit;
+}
+
+input:not([type="checkbox"]):not([type="radio"]), select {
+  width: 100%;
+  padding: 0.6rem 0.7rem;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--card);
+}
+
+.choices {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(9rem, 1fr));
+  gap: 0.25rem;
+}
+.choice {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.35rem 0.2rem;
+  font-size: 0.95rem;
+}
+
+.pair { display: flex; gap: 0.5rem; }
+
+.actions { margin: 1rem 0 0; display: flex; gap: 0.5rem; }
+button {
+  padding: 0.7rem 1.2rem;
+  border: 0;
+  border-radius: 8px;
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-weight: 600;
+}
+button.danger { background: var(--danger); }
+
+.error, .notice {
+  padding: 0.6rem 0.8rem;
+  border-radius: 8px;
+  font-size: 0.95rem;
+}
+.error { background: #fef2f2; color: var(--danger); }
+.notice { background: #fffbeb; color: #92400e; }
+
+.eyebrow {
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 0.8rem;
+  color: var(--muted);
+  margin-bottom: 0;
+}
+.match-message { font-size: 1.05rem; }
+.match-contact { margin-top: 1rem; }
+.match-score { color: var(--muted); font-size: 0.85rem; }
