@@ -1,21 +1,24 @@
 """The Phase 2 web app.
 
-Wraps the pipeline for a live demo: participants sign up, an organiser
-triggers a run, participants see their match. No login; the admin pages take
-a token from the ADMIN_TOKEN env var.
+Wraps the pipeline for a live demo: participants sign in with their
+university Google account, fill in a profile, an organiser triggers a run,
+and each participant sees their match. The admin pages take a token from the
+ADMIN_TOKEN env var instead, since an organiser is not a participant.
 
-Every route is a plain def, never async def, so the blocking Gemini and
-store calls run in the threadpool and polling keeps working while a run is
-in flight.
+A participant is identified by the address in their session, which is also
+the id the pipeline sees, so signing in again finds the same profile.
+
+Most routes are plain def, never async def, so the blocking Gemini and store
+calls run in the threadpool and polling keeps working while a run is in
+flight. The two OAuth routes are async, because Authlib's calls out to
+Google are.
 """
 
 import csv
 import io
 import os
-import re
 import secrets
 import threading
-import uuid
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -23,10 +26,11 @@ from fastapi import FastAPI, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from starlette.middleware.sessions import SessionMiddleware
 
 from .. import data, pipeline, vocabulary
 from ..models import User
-from . import db
+from . import auth, db
 
 # Local dev reads ADMIN_TOKEN and friends from .env. Deployed, the real
 # environment is already set and load_dotenv finds nothing.
@@ -35,6 +39,12 @@ load_dotenv()
 HERE = Path(__file__).parent
 
 app = FastAPI()
+app.add_middleware(
+    SessionMiddleware,
+    secret_key=os.environ.get("SESSION_SECRET", "dev-only-session-secret"),
+    same_site="lax",
+    https_only=os.environ.get("STORE") == "firestore",
+)
 app.mount("/static", StaticFiles(directory=HERE / "static"), name="static")
 templates = Jinja2Templates(directory=HERE / "templates")
 
@@ -46,11 +56,6 @@ run_lock = threading.Lock()
 # The order the modes are offered in, friendship first. Anything registered
 # later and not named here comes after, so vocabulary stays the source.
 MODE_ORDER = ("friendship", "date")
-
-# What a contact has to look like. Deliberately loose: one @, a dot after it,
-# no spaces. Anything tighter turns down addresses that work.
-EMAIL = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
-
 
 def _modes_in_order() -> list[str]:
     known = [mode for mode in MODE_ORDER if mode in vocabulary.MODES]
@@ -80,25 +85,96 @@ def render(request: Request, template: str, status_code: int = 200, **context) -
     )
 
 
+# --- signing in -------------------------------------------------------------
+
+
+@app.get("/login")
+async def login(request: Request):
+    """Hand the browser over to Google.
+
+    The domain is passed as a hint, so the account chooser shows university
+    accounts first. It is only a hint, and the answer is checked again in
+    the callback.
+    """
+    redirect = request.url_for("auth_callback")
+    return await auth.oauth.google.authorize_redirect(
+        request, str(redirect), hd=auth.allowed_domain()
+    )
+
+
+@app.get("/auth/callback", name="auth_callback")
+async def auth_callback(request: Request):
+    try:
+        token = await auth.oauth.google.authorize_access_token(request)
+    except Exception:
+        # A cancelled sign in lands here too, so this is not only an error.
+        return RedirectResponse("/?error=sign+in+did+not+finish", status_code=303)
+
+    claims = token.get("userinfo") or {}
+    email = str(claims.get("email") or "")
+    verified = bool(claims.get("email_verified"))
+
+    if not email or not verified or not auth.is_allowed(email):
+        return render(
+            request,
+            "message.html",
+            status_code=403,
+            title="That account cannot be used",
+            body=(
+                f"Sign in with your @{auth.allowed_domain()} account. "
+                "Personal Google accounts are not part of this demo."
+            ),
+        )
+
+    auth.sign_in(request, email, str(claims.get("name") or ""))
+    return RedirectResponse("/", status_code=303)
+
+
+@app.get("/logout")
+def logout(request: Request):
+    auth.sign_out(request)
+    return RedirectResponse("/", status_code=303)
+
+
 # --- participant pages ------------------------------------------------------
 
 
 @app.get("/", response_class=HTMLResponse)
-def signup_form(request: Request):
-    return render(request, "signup.html", options=OPTIONS, form={}, error=None)
+def home(request: Request, error: str = ""):
+    """The front door, which depends on how far along the visitor is.
+
+    Not signed in, they get the sign in button. Signed in with a profile
+    already saved, they go to their own page. Otherwise they get the form.
+    """
+    email = auth.signed_in_email(request)
+    if email is None:
+        return render(request, "login.html", domain=auth.allowed_domain(), error=error)
+    if store.get_user(email) is not None:
+        return RedirectResponse("/me", status_code=303)
+    return render(
+        request,
+        "signup.html",
+        options=OPTIONS,
+        form={"name": auth.signed_in_name(request)},
+        email=email,
+        error=None,
+    )
 
 
-def _parse_signup(form: dict[str, object], picked: dict[str, list[str]]) -> tuple[User, str, str]:
-    """Turn the submitted form into a User plus the web-only fields.
+def _parse_signup(
+    email: str, form: dict[str, object], picked: dict[str, list[str]]
+) -> tuple[User, str]:
+    """Turn the submitted form into a User plus the display name.
+
+    The address comes from the session rather than the form, so it is the one
+    Google verified. It is also the user's id, which is what lets a second
+    sign in find the same profile.
 
     Raises ValueError naming the first thing wrong, which the form shows.
     """
     name = str(form.get("name", "")).strip()
-    contact = str(form.get("contact", "")).strip()
     if not name:
         raise ValueError("name is missing")
-    if not EMAIL.match(contact):
-        raise ValueError("email does not look like an address")
 
     def choice(field: str, registered: frozenset) -> str:
         value = str(form.get(field, "")).strip()
@@ -143,7 +219,7 @@ def _parse_signup(form: dict[str, object], picked: dict[str, list[str]]) -> tupl
     vocabulary.validate_preferences(preferences)
 
     user = User(
-        id=uuid.uuid4().hex[:12],
+        id=email,
         major=major,
         faculty=vocabulary.faculty_of(major),
         year=number("year", min(vocabulary.YEARS), max(vocabulary.YEARS)),
@@ -156,14 +232,13 @@ def _parse_signup(form: dict[str, object], picked: dict[str, list[str]]) -> tupl
         mode=choice("mode", vocabulary.MODES),
         preferences=preferences,
     )
-    return user, name, contact
+    return user, name
 
 
 @app.post("/signup")
 def signup(
     request: Request,
     name: str = Form(""),
-    contact: str = Form(""),
     major: str = Form(""),
     year: str = Form(""),
     age: str = Form(""),
@@ -177,9 +252,12 @@ def signup(
     pref_age_min: str = Form(""),
     pref_age_max: str = Form(""),
 ):
+    email = auth.signed_in_email(request)
+    if email is None:
+        return RedirectResponse("/", status_code=303)
+
     form = {
         "name": name,
-        "contact": contact,
         "major": major,
         "year": year,
         "age": age,
@@ -196,7 +274,7 @@ def signup(
         "pref_genders": pref_genders,
     }
     try:
-        user, clean_name, clean_contact = _parse_signup(form, picked)
+        user, clean_name = _parse_signup(email, form, picked)
     except ValueError as error:
         return render(
             request,
@@ -204,22 +282,12 @@ def signup(
             status_code=400,
             options=OPTIONS,
             form={**form, **picked},
+            email=email,
             error=str(error),
         )
 
-    store.add_user(db.user_to_doc(user, clean_name, clean_contact))
-    response = RedirectResponse(f"/me/{user.id}", status_code=303)
-    # A fallback for a lost tab: /me with no id reads this cookie.
-    response.set_cookie("kb_user", user.id, max_age=60 * 60 * 24 * 7)
-    return response
-
-
-@app.get("/me", response_class=HTMLResponse)
-def me_from_cookie(request: Request):
-    user_id = request.cookies.get("kb_user")
-    if user_id and store.get_user(user_id):
-        return RedirectResponse(f"/me/{user_id}", status_code=303)
-    return RedirectResponse("/", status_code=303)
+    store.add_user(db.user_to_doc(user, clean_name, email))
+    return RedirectResponse("/me", status_code=303)
 
 
 def _match_for(user_id: str) -> tuple[dict[str, object] | None, bool]:
@@ -234,16 +302,20 @@ def _match_for(user_id: str) -> tuple[dict[str, object] | None, bool]:
     return None, True
 
 
-@app.get("/me/{user_id}", response_class=HTMLResponse)
-def me(request: Request, user_id: str):
-    doc = store.get_user(user_id)
+@app.get("/me", response_class=HTMLResponse)
+def me(request: Request):
+    email = auth.signed_in_email(request)
+    if email is None:
+        return RedirectResponse("/", status_code=303)
+    doc = store.get_user(email)
     if doc is None:
-        return render(request, "message.html", status_code=404,
-                      title="Not found", body="That link does not point at a signup.")
-    entry, has_run = _match_for(user_id)
+        # Signed in but no profile yet, so back to the form.
+        return RedirectResponse("/", status_code=303)
+
+    entry, has_run = _match_for(email)
     if entry is None:
-        return render(request, "waiting.html", user_id=user_id, has_run=has_run)
-    partner_id = entry["b"] if entry["a"] == user_id else entry["a"]
+        return render(request, "waiting.html", has_run=has_run)
+    partner_id = entry["b"] if entry["a"] == email else entry["a"]
     partner = store.get_user(str(partner_id)) or {}
     return render(
         request,
@@ -257,13 +329,16 @@ def me(request: Request, user_id: str):
     )
 
 
-@app.get("/me/{user_id}/status", response_class=HTMLResponse)
-def me_status(request: Request, user_id: str):
-    entry, has_run = _match_for(user_id)
+@app.get("/me/status", response_class=HTMLResponse)
+def me_status(request: Request):
+    email = auth.signed_in_email(request)
+    if email is None:
+        return Response(headers={"HX-Redirect": "/"})
+    entry, has_run = _match_for(email)
     if entry is not None:
         # htmx follows this header, landing the phone on the result page.
-        return Response(headers={"HX-Redirect": f"/me/{user_id}"})
-    return render(request, "partials/status.html", user_id=user_id, has_run=has_run)
+        return Response(headers={"HX-Redirect": "/me"})
+    return render(request, "partials/status.html", has_run=has_run)
 
 
 # --- admin ------------------------------------------------------------------
@@ -323,10 +398,13 @@ def admin_seed(token: str = Form(""), count: int = Form(12)):
     _check_token(token)
     import dataclasses
 
+    # Made up users are keyed by a made up address, the same way a real
+    # signup is keyed by the one Google verified.
     users = data.generate_users(count)
     for i, user in enumerate(users, start=1):
-        made = dataclasses.replace(user, id=uuid.uuid4().hex[:12])
-        store.add_user(db.user_to_doc(made, f"Demo {i}", f"demo{i}@example.com"))
+        email = f"demo{i}@{auth.allowed_domain()}"
+        made = dataclasses.replace(user, id=email)
+        store.add_user(db.user_to_doc(made, f"Demo {i}", email))
     return RedirectResponse(
         f"/admin?token={token}&notice=seeded+{count}", status_code=303
     )

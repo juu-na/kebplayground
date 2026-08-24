@@ -12,8 +12,9 @@
   </div>
 
   <div class="field">
-    <label for="contact">Email</label>
-    <input id="contact" name="contact" type="email" required value="{{ form.get('contact', '') }}">
+    <label>Email</label>
+    <p class="fixed-value">{{ email }}</p>
+    <p class="hint">Taken from the account you signed in with.</p>
   </div>
 
   <div class="field">

@@ -23,6 +23,9 @@ body {
 }
 
 .site-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
   padding: 0.75rem 1rem;
   border-bottom: 1px solid var(--line);
 }
@@ -69,6 +72,28 @@ input:not([type="checkbox"]):not([type="radio"]), select {
   border: 1px solid var(--line);
   border-radius: 8px;
   background: var(--card);
+}
+
+.sign-out { font-weight: 400; font-size: 0.9rem; color: var(--muted); }
+
+a.button {
+  display: inline-block;
+  padding: 0.7rem 1.2rem;
+  border-radius: 8px;
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-weight: 600;
+  text-decoration: none;
+}
+.actions.centre { justify-content: center; }
+
+.fixed-value {
+  margin: 0;
+  padding: 0.6rem 0.7rem;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--paper);
+  color: var(--muted);
 }
 
 .hint {

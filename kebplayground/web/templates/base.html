@@ -12,6 +12,9 @@
 <body>
   <header class="site-header">
     <a href="/">keb playground</a>
+    {% if request.session.get("email") %}
+    <a class="sign-out" href="/logout">Sign out</a>
+    {% endif %}
   </header>
   <main class="content">
     {% block content %}{% endblock %}
