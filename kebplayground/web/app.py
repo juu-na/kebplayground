@@ -361,6 +361,8 @@ def export_matches(token: str = ""):
     )
 
 
-@app.get("/healthz")
-def healthz():
+# Not /healthz: Google's frontend answers that path itself on Cloud Run, so
+# the request never reaches the app.
+@app.get("/health")
+def health():
     return {"ok": True}
