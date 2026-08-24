@@ -12,4 +12,9 @@ COPY kebplayground ./kebplayground
 RUN uv sync --frozen --no-dev
 
 # Shell form on purpose: Cloud Run passes the port through $PORT.
-CMD uv run --no-sync uvicorn kebplayground.web.app:app --host 0.0.0.0 --port ${PORT:-8080}
+#
+# forwarded-allow-ips is needed for the OAuth callback. Cloud Run terminates
+# TLS and forwards over http, so without trusting the proxy headers the
+# callback URL would be built as http and Google would turn it down. Only
+# the Cloud Run frontend can reach the container, so trusting them is safe.
+CMD uv run --no-sync uvicorn kebplayground.web.app:app --host 0.0.0.0 --port ${PORT:-8080} --proxy-headers --forwarded-allow-ips '*'
