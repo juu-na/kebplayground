@@ -19,8 +19,9 @@
   <p class="match-contact">Email them at <strong>{{ partner.contact if partner else "" }}</strong></p>
     {% include "partials/reveal.html" %}
 {% elif status == "matching" %}
-  <h2>Finding your match.</h2>
-  <p>A round is going right now. This page keeps itself up to date.</p>
+  {% include "partials/duck_loading.html" %}
+  <h2 class="centre">Finding your match.</h2>
+  <p class="centre">A round is going right now. This page keeps itself up to date.</p>
 {% elif status == "paused" %}
   <h2>You are sitting this one out.</h2>
   <p>You will not be matched until you come back in.</p>
@@ -31,8 +32,9 @@
   {% set best = (missed.best * 100) | round | int %}
   {% set line = (missed.floor * 100) | round | int %}
   {% if missed.best < missed.floor %}
-  <h2>Nobody quite suited you.</h2>
-  <p>Everybody kiWe could offer came in under {{ line }}%, so nobody was
+  {% include "partials/duck_loading.html" %}
+  <h2 class="centre">Nobody quite suited you.</h2>
+  <p class="centre">Everybody kiWe could offer came in under {{ line }}%, so nobody was
      worth offering. You stay in the pool for the next round.</p>
   {% else %}
   <h2>Somebody suited you, but not only you.</h2>
@@ -69,11 +71,12 @@
     <button type="submit" class="quiet">Pause my place</button>
   </form>
 {% else %}
-  <h2>You are {{ waiting_count }} of {{ pool_size }}.</h2>
+  {% include "partials/duck_loading.html" %}
+  <h2 class="centre">You are {{ waiting_count }} of {{ pool_size }}.</h2>
   {% if waiting_count >= pool_size %}
-  <p>The pool is full, so a round is about to start.</p>
+  <p class="centre">The pool is full, so a round is about to start.</p>
   {% else %}
-  <p>Matching starts once {{ pool_size }} people are waiting. This page keeps itself up to date.</p>
+  <p class="centre">Matching starts once {{ pool_size }} people are waiting. This page keeps itself up to date.</p>
   {% endif %}
   <form method="post" action="/pause" class="actions centre">
     <button type="submit" class="quiet">Pause my place</button>
