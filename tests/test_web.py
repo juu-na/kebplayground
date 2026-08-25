@@ -282,8 +282,11 @@ class TestTheRound(WebTest):
         self.client.post("/admin/run", data={"token": TOKEN})
         page = self.client.get("/").text
         self.assertIn("Nobody quite suited you", page)
-        self.assertIn("Your closest so far", page)
+        self.assertIn("Your best so far", page)
         self.assertIn("Raise your odds", page)
+        # Scores read as percentages, never as a bare 0.60.
+        self.assertIn("60%", page)
+        self.assertNotIn("0.60", page)
 
     def test_being_outscored_is_not_told_as_scoring_too_low(self) -> None:
         # Three who all suit each other: one pair is matched and the third
@@ -301,7 +304,10 @@ class TestTheRound(WebTest):
         self.assertGreaterEqual(missed["best"], missed["floor"])
         page = self.client.get("/").text
         self.assertIn("not only you", page)
-        self.assertNotIn("scored under", page)
+        self.assertNotIn("Nobody quite suited", page)
+        # Their profile was fine, so it must not be framed as a shortcoming.
+        self.assertNotIn("Raise your odds", page)
+        self.assertIn("More chances next round", page)
 
     def test_somebody_who_missed_a_round_is_told_how_close_they_came(self) -> None:
         from kebplayground.web.app import _last_run_for

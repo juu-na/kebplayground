@@ -28,29 +28,37 @@
     <button type="submit">Join the next round</button>
   </form>
 {% elif missed %}
+  {% set best = (missed.best * 100) | round | int %}
+  {% set line = (missed.floor * 100) | round | int %}
   {% if missed.best < missed.floor %}
   <h2>Nobody quite suited you.</h2>
-  <p>Everybody kiWe could offer scored under {{ '%.2f' % missed.floor }}, so
-     nobody was worth offering. You stay in the pool for the next round.</p>
+  <p>Everybody kiWe could offer came in under {{ line }}%, so nobody was
+     worth offering. You stay in the pool for the next round.</p>
   {% else %}
   <h2>Somebody suited you, but not only you.</h2>
-  <p>You scored {{ '%.2f' % missed.best }} with somebody this round, well over
-     the line. They were an even better fit for someone else, so they went
-     there. You stay in the pool for the next round.</p>
+  <p>You came out {{ best }}% with somebody this round, well over the line.
+     They were an even better fit for someone else, so they went there. You
+     stay in the pool for the next round.</p>
   {% endif %}
 
-  <p class="eyebrow">Your closest so far</p>
+  <p class="eyebrow">Your best so far</p>
   <div class="scale">
     <span class="bar">
-      <span class="bar-fill" style="width: {{ '%.0f' % (missed.best * 100) }}%"></span>
-      <span class="scale-floor" style="left: {{ '%.0f' % (missed.floor * 100) }}%"></span>
+      <span class="bar-fill" style="width: {{ best }}%"></span>
+      <span class="scale-floor" style="left: {{ line }}%"></span>
     </span>
-    <span class="bar-figure">{{ '%.2f' % missed.best }}</span>
+    <span class="bar-figure">{{ best }}%</span>
   </div>
-  <p class="hint">The line is {{ '%.2f' % missed.floor }}, what a pair has to clear.</p>
+  <p class="hint">The line is {{ line }}%, what a pair has to clear.</p>
 
   {% if tips %}
+  {% if missed.best < missed.floor %}
   <p class="eyebrow">Raise your odds</p>
+  {% else %}
+  <p class="eyebrow">More chances next round</p>
+  <p class="hint">Nothing is wrong with your profile. Widening these only
+     makes you harder to leave out when the pairs are drawn.</p>
+  {% endif %}
   <ul class="tips">
     {% for tip in tips %}<li>{{ tip }}</li>{% endfor %}
   </ul>
