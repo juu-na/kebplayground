@@ -28,9 +28,16 @@
     <button type="submit">Join the next round</button>
   </form>
 {% elif missed %}
+  {% if missed.best < missed.floor %}
   <h2>Nobody quite suited you.</h2>
   <p>Everybody kiWe could offer scored under {{ '%.2f' % missed.floor }}, so
      nobody was worth offering. You stay in the pool for the next round.</p>
+  {% else %}
+  <h2>Somebody suited you, but not only you.</h2>
+  <p>You scored {{ '%.2f' % missed.best }} with somebody this round, well over
+     the line. They were an even better fit for someone else, so they went
+     there. You stay in the pool for the next round.</p>
+  {% endif %}
 
   <p class="eyebrow">Your closest so far</p>
   <div class="scale">

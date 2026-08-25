@@ -285,6 +285,24 @@ class TestTheRound(WebTest):
         self.assertIn("Your closest so far", page)
         self.assertIn("Raise your odds", page)
 
+    def test_being_outscored_is_not_told_as_scoring_too_low(self) -> None:
+        # Three who all suit each other: one pair is matched and the third
+        # is left over, having cleared the floor with both of them.
+        self.join()
+        add_partner(PARTNER)
+        add_partner("cara@aucklanduni.ac.nz")
+        self.client.post("/admin/run", data={"token": TOKEN})
+
+        from kebplayground.web.app import _last_run_for
+
+        missed = _last_run_for(EMAIL)
+        if missed is None:
+            self.skipTest("this run matched everybody")
+        self.assertGreaterEqual(missed["best"], missed["floor"])
+        page = self.client.get("/").text
+        self.assertIn("not only you", page)
+        self.assertNotIn("scored under", page)
+
     def test_somebody_who_missed_a_round_is_told_how_close_they_came(self) -> None:
         from kebplayground.web.app import _last_run_for
 
