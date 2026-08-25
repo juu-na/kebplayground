@@ -307,3 +307,11 @@ button.danger { background: var(--danger); color: #fff; }
   min-width: 2.5rem;
   text-align: right;
 }
+
+.suggestion {
+  margin: 1.1rem 0;
+  padding: 0.9rem 1rem;
+  border-radius: var(--radius-small);
+  background: var(--tint);
+}
+.suggestion p:last-child { margin: 0; }

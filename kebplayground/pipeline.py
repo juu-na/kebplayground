@@ -14,11 +14,11 @@ from .models import User, pair_key
 # is a decision the project makes once, not something a user chooses.
 ALGORITHM = "blossom"
 
-# How many match messages are asked for at once. Each one is a network call
+# How many suggestions are asked for at once. Each one is a network call
 # that spends nearly all its time waiting, so a few at a time turns a run
 # from a minute into a few seconds. Kept small to stay inside the API's rate
 # limit on a big run.
-MESSAGES_AT_ONCE = 4
+SUGGESTIONS_AT_ONCE = 4
 
 
 def run_matching(
@@ -64,8 +64,8 @@ def run_matching(
         )
 
     if explain:
-        def write_message(entry: dict) -> str:
-            return llm.explain(
+        def ask_for_one(entry: dict) -> str:
+            return llm.suggest(
                 user_map[entry["a"]],
                 user_map[entry["b"]],
                 entry["score"],
@@ -76,9 +76,9 @@ def run_matching(
 
         # map keeps the answers in the order the matches were given, so a run
         # reads the same however the threads finish.
-        with ThreadPoolExecutor(max_workers=MESSAGES_AT_ONCE) as pool:
-            for entry, message in zip(records, pool.map(write_message, records)):
-                entry["message"] = message
+        with ThreadPoolExecutor(max_workers=SUGGESTIONS_AT_ONCE) as pool:
+            for entry, suggestion in zip(records, pool.map(ask_for_one, records)):
+                entry["suggestion"] = suggestion
 
     result = {"algo": ALGORITHM, "matches": records}
     result.update(evaluation)

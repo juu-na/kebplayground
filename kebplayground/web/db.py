@@ -91,7 +91,7 @@ def profile_fields(doc: dict[str, object]) -> dict[str, object]:
 
 
 def new_match(
-    a: str, b: str, score: float, mode: str, message: str, why: str,
+    a: str, b: str, score: float, mode: str, suggestion: str, why: str,
     breakdown: dict[str, float], place: str,
 ) -> dict[str, object]:
     """One pair a run made, before either side has answered."""
@@ -100,7 +100,8 @@ def new_match(
         "b": b,
         "score": score,
         "mode": mode,
-        "message": message,
+        # One thing these two could go and do, from the model.
+        "suggestion": suggestion,
         # What the two actually have in common, worked out without the model.
         # Written down at the time, so it still reads true after either of
         # them edits their profile.

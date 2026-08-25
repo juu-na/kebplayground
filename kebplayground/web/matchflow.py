@@ -154,7 +154,7 @@ def run_now(store) -> bool:
                 b=b,
                 score=float(entry["score"]),  # type: ignore[arg-type]
                 mode=str(entry["mode"]),
-                message=str(entry.get("message") or ""),
+                suggestion=str(entry.get("suggestion") or ""),
                 why=llm.why(
                     by_user[a], by_user[b], entry.get("breakdown") or {}  # type: ignore[arg-type]
                 ),

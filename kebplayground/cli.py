@@ -23,7 +23,7 @@ def build_parser() -> argparse.ArgumentParser:
                        repeated exactly
       --min-score N    the lowest score worth offering, so a run can be
                        loosened or tightened without touching the code
-      --explain        also ask the LLM to write the match messages
+      --explain        also ask the LLM for an activity for each pair
       --cache PATH     where the LLM answers are kept between runs,
                        .cache/llm.json by default
       --output PATH    where to write the results as JSON
@@ -77,7 +77,7 @@ def print_table(result: dict[str, object]) -> None:
             f"{entry['a']} {entry['b']}  {entry['mode']:<10} "
             f"{round(cast(float, entry['score']), 2)}"
         )
-        message = entry.get("message")
+        message = entry.get("suggestion")
         if message:
             line += f"  {message}"
         print(line)

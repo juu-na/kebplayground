@@ -327,13 +327,15 @@ class TestTheRound(WebTest):
         self.assertIn("Computer Science", str(match["why"]))
         self.assertIn(str(match["why"]), self.client.get("/").text)
 
-    def test_the_reason_is_not_said_twice(self) -> None:
-        # With no model the message is the written reason, so the page must
-        # not print the same sentence under it.
+    def test_the_reason_and_the_suggestion_are_both_shown(self) -> None:
+        # Two different jobs: why they were matched is worked out in code,
+        # what to do about it comes from the model.
         match = self.matched_pair()
         page = self.client.get("/").text
-        self.assertEqual(match["message"], match["why"])
-        self.assertEqual(page.count(str(match["why"])), 1)
+        self.assertNotEqual(match["why"], match["suggestion"])
+        self.assertIn(str(match["why"]), page)
+        self.assertIn(str(match["suggestion"]), page)
+        self.assertIn("Something to do", page)
 
     def test_a_measurement_of_zero_is_left_off_the_bars(self) -> None:
         from kebplayground.web.app import _bars

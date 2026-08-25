@@ -651,7 +651,7 @@ def export_matches(token: str = ""):
     _check_token(token)
     out = io.StringIO()
     writer = csv.DictWriter(
-        out, fieldnames=["a", "a_name", "b", "b_name", "mode", "score", "message"]
+        out, fieldnames=["a", "a_name", "b", "b_name", "mode", "score", "suggestion"]
     )
     writer.writeheader()
     run = store.latest_run()
@@ -667,7 +667,7 @@ def export_matches(token: str = ""):
                     "b_name": b.get("name", ""),
                     "mode": entry["mode"],
                     "score": entry["score"],
-                    "message": entry.get("message", ""),
+                    "suggestion": entry.get("suggestion", ""),
                 }
             )
     return Response(

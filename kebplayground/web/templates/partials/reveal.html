@@ -1,9 +1,12 @@
 {# The card both the offer and the acceptance show: what the two have in
    common, and how each measurement scored. #}
-{# When the model could not be reached the message is this same sentence,
-   so only show it when it says something the message does not. #}
-{% if match.why and match.why != match.message %}
-<p class="match-why">{{ match.why }}</p>
+{% if match.why %}<p class="match-why">{{ match.why }}</p>{% endif %}
+
+{% if match.suggestion %}
+<div class="suggestion">
+  <p class="eyebrow">Something to do</p>
+  <p>{{ match.suggestion }}</p>
+</div>
 {% endif %}
 
 {% if shared.interests or shared.languages %}

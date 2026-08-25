@@ -8,7 +8,7 @@ in the [README](README.md).
 
 | Name | Where it lives | What it does |
 | --- | --- | --- |
-| `GEMINI_API_KEY` | Secret Manager `gemini-api-key` | Writes the match messages. Without it the messages are the plain ones. |
+| `GEMINI_API_KEY` | Secret Manager `gemini-api-key` | Suggests what each pair could do. Without it they get the written suggestion instead. |
 | `ADMIN_TOKEN` | Secret Manager `admin-token` | Guards every admin page, passed as `?token=`. |
 | `GOOGLE_CLIENT_ID` | Secret Manager `google-client-id` | Signing in. |
 | `GOOGLE_CLIENT_SECRET` | Secret Manager `google-client-secret` | Signing in. |
@@ -125,9 +125,11 @@ minutes before the demo.
 through a round. The next round sweeps them back into the pool, so press
 "Run the matching".
 
-**Match messages are dull and all alike.** That is `plain_message`, the
-fallback used when Gemini could not be reached. Check `GEMINI_API_KEY`, and
-remember a rotated secret only reaches the app on the next deploy.
+**Every pair is told to grab a coffee.** That is `plain_suggestion`, the
+fallback used when Gemini could not be reached or when its answer broke one
+of the rules in the system prompt. Check `GEMINI_API_KEY`, and remember a
+rotated secret only reaches the app on the next deploy. The reasons under it
+are worked out in code, so those stay right either way.
 
 **`redirect_uri_mismatch` when signing in.** The callback for the URL you
 are on is not listed on the OAuth client. It has to match exactly, including
