@@ -486,7 +486,8 @@ class TestRounds(WebTest):
                 if a != b:
                     self.assertNotIn(matchflow.place_for(a, b), matchflow.OFF_CAMPUS)
 
-    def test_a_cross_faculty_pair_meets_nearest_the_halfway_point(self) -> None:
+    def test_a_cross_faculty_pair_meets_near_the_halfway_point(self) -> None:
+        """Either the nearest spot, or neutral ground worth the extra walk."""
         import math
 
         for a in matchflow.MEETING_PLACES:
@@ -496,15 +497,34 @@ class TestRounds(WebTest):
                 (ax, ay) = matchflow.PLACES[matchflow.MEETING_PLACES[a]]
                 (bx, by) = matchflow.PLACES[matchflow.MEETING_PLACES[b]]
                 middle = ((ax + bx) / 2, (ay + by) / 2)
-                picked = matchflow.place_for(a, b)
-                nearest = min(
-                    math.dist(spot, middle)
+                away = {
+                    name: math.dist(spot, middle)
                     for name, spot in matchflow.PLACES.items()
                     if name not in matchflow.OFF_CAMPUS
-                )
-                self.assertAlmostEqual(
-                    math.dist(matchflow.PLACES[picked], middle), nearest
-                )
+                }
+                picked = matchflow.place_for(a, b)
+                closest = min(away.values())
+                if picked in matchflow.NEUTRAL:
+                    self.assertLessEqual(
+                        away[picked], closest + matchflow.NEUTRAL_DETOUR
+                    )
+                else:
+                    self.assertAlmostEqual(away[picked], closest)
+
+    def test_neutral_ground_beats_one_of_their_own_buildings(self) -> None:
+        # The Arts Building and the OGGB are both nearer the halfway point,
+        # but Kate Edger belongs to neither of them and is close enough.
+        self.assertEqual(
+            matchflow.place_for("Faculty of Arts and Education", "Business School"),
+            "Kate Edger",
+        )
+
+    def test_nobody_is_sent_to_the_other_faculty_s_building(self) -> None:
+        homes = set(matchflow.MEETING_PLACES.values())
+        for a in matchflow.MEETING_PLACES:
+            for b in matchflow.MEETING_PLACES:
+                if a != b:
+                    self.assertNotIn(matchflow.place_for(a, b), homes)
 
     def test_the_places_are_the_same_whichever_way_round(self) -> None:
         for a in matchflow.MEETING_PLACES:

@@ -40,9 +40,16 @@ PLACES = {
 # come out, since one of them would otherwise be walking to another campus.
 OFF_CAMPUS = frozenset({"the Davis Library", "the Grafton campus"})
 
-# The spots that are nobody's home faculty, which break a tie between two
-# that are equally close.
+# The spots that are nobody's home faculty. A pair from two faculties is
+# sent to one of these in preference to either of their own buildings, since
+# neither side then has to walk into the other's.
 NEUTRAL = frozenset({"the General Library", "Kate Edger", "Hiwa Recreation Centre"})
+
+# How much further than the nearest spot a neutral one may be and still be
+# worth it, roughly a third of the way across the city campus. Past that the
+# walk costs more than the neutral ground is worth, and the nearest spot
+# wins even though it belongs to one of them.
+NEUTRAL_DETOUR = 2.0
 
 # Where a faculty meets its own. A test checks every faculty is named here.
 MEETING_PLACES = {
@@ -69,8 +76,9 @@ def place_for(faculty_a: str, faculty_b: str) -> str:
     """Where to send a pair.
 
     Two people from the same faculty meet at their own building, wherever
-    that is. Otherwise take the halfway point between the two buildings and
-    pick whatever sits closest to it, keeping to the city campus.
+    that is. Otherwise aim for the halfway point between the two buildings
+    and take the nearest spot to it, keeping to the city campus and
+    preferring somewhere that belongs to neither of them.
     """
     home_a = MEETING_PLACES.get(faculty_a, DEFAULT_PLACE)
     home_b = MEETING_PLACES.get(faculty_b, DEFAULT_PLACE)
@@ -80,18 +88,21 @@ def place_for(faculty_a: str, faculty_b: str) -> str:
     (ax, ay), (bx, by) = PLACES[home_a], PLACES[home_b]
     middle = ((ax + bx) / 2, (ay + by) / 2)
 
-    def nearness(item: tuple[str, tuple[float, float]]) -> tuple:
-        name, spot = item
-        # City campus first, then closest to the middle, then whichever
-        # belongs to nobody, then whichever was named first.
-        return (
-            name in OFF_CAMPUS,
-            math.dist(spot, middle),
-            name not in NEUTRAL,
-            _ORDER[name],
-        )
+    on_campus = [
+        (name, math.dist(spot, middle))
+        for name, spot in PLACES.items()
+        if name not in OFF_CAMPUS
+    ]
+    closest = min(distance for _, distance in on_campus)
 
-    return min(PLACES.items(), key=nearness)[0]
+    def nearness(item: tuple[str, float]) -> tuple:
+        name, distance = item
+        worth_it = name in NEUTRAL and distance <= closest + NEUTRAL_DETOUR
+        # Somewhere belonging to nobody first, as long as it is not a walk,
+        # then closest, then whichever was named first.
+        return (not worth_it, distance, _ORDER[name])
+
+    return min(on_campus, key=nearness)[0]
 
 
 def pool_size(store) -> int:
