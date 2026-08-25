@@ -31,8 +31,8 @@ def run_matching(
     """Do one full run over the given users.
 
     Output: a dict holding the matches, the numbers judging the run, and any
-    messages that were written. This is the same shape the Phase 2 API sends
-    back.
+    suggestions that were written. This is the same shape the Phase 2 API
+    sends back.
     """
     # only the people currently waiting take part in a run
     waiting = [user for user in users if user.status == "waiting"]
@@ -43,6 +43,18 @@ def run_matching(
 
     matches = matcher.ALGORITHMS[ALGORITHM](scores, allowed)
     evaluation = scoring.evaluate(waiting, matches, scores, modes, allowed)
+
+    # The best anyone could have done, floor or no floor. Somebody left
+    # waiting is owed a reason, and "nobody cleared 0.6, your closest was
+    # 0.54" is a reason. The pairs the floor dropped are gone from scores by
+    # then, so this asks for them again with the floor taken off.
+    unfloored, _, _ = scoring.build_score_table(
+        waiting, constraints.build_allow_table(waiting), 0.0
+    )
+    best: dict[str, float] = {}
+    for (left, right), score in unfloored.items():
+        best[left] = max(best.get(left, 0.0), score)
+        best[right] = max(best.get(right, 0.0), score)
 
     # The breakdown comes along whether or not a message was asked for, so
     # that a caller can show what the pair scored on without paying for the
@@ -80,6 +92,13 @@ def run_matching(
             for entry, suggestion in zip(records, pool.map(ask_for_one, records)):
                 entry["suggestion"] = suggestion
 
-    result = {"algo": ALGORITHM, "matches": records}
+    result = {
+        "algo": ALGORITHM,
+        "matches": records,
+        # What a pair had to clear to be offered at all, so that a page can
+        # say how close somebody came.
+        "floor": min_score,
+        "best": best,
+    }
     result.update(evaluation)
     return result

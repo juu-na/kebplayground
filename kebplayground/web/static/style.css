@@ -315,3 +315,27 @@ button.danger { background: var(--danger); color: #fff; }
   background: var(--tint);
 }
 .suggestion p:last-child { margin: 0; }
+
+/* --- how close somebody came --- */
+
+.scale {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0.35rem 0 0;
+}
+.scale .bar { position: relative; height: 14px; }
+.scale-floor {
+  position: absolute;
+  top: -3px;
+  width: 3px;
+  height: 20px;
+  border-radius: 2px;
+  background: var(--ink);
+}
+
+.tips {
+  margin: 0.35rem 0 0;
+  padding-left: 1.1rem;
+}
+.tips li { margin: 0.3rem 0; }

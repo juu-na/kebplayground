@@ -18,7 +18,7 @@ import unittest.mock
 
 from fastapi.testclient import TestClient
 
-from kebplayground import data, llm, pipeline, vocabulary
+from kebplayground import data, llm, pipeline, scoring, vocabulary
 from kebplayground.cli import build_parser, run
 from kebplayground.models import User
 from kebplayground.web import auth, db, matchflow
@@ -276,7 +276,35 @@ class TestTheRound(WebTest):
         self.join()
         self.client.post("/admin/run", data={"token": TOKEN})
         self.assertEqual(store.get_user(EMAIL)["status"], "waiting")
-        self.assertIn("You are 1 of 10", self.client.get("/").text)
+
+    def test_a_round_that_found_nobody_says_so(self) -> None:
+        self.join()
+        self.client.post("/admin/run", data={"token": TOKEN})
+        page = self.client.get("/").text
+        self.assertIn("Nobody quite suited you", page)
+        self.assertIn("Your closest so far", page)
+        self.assertIn("Raise your odds", page)
+
+    def test_somebody_who_missed_a_round_is_told_how_close_they_came(self) -> None:
+        from kebplayground.web.app import _last_run_for
+
+        self.join()
+        add_partner(PARTNER, age=45, mode="date")  # too far off to be offered
+        self.client.post("/admin/run", data={"token": TOKEN})
+        missed = _last_run_for(EMAIL)
+        assert missed is not None
+        self.assertEqual(missed["floor"], scoring.MIN_MATCH_SCORE)
+        self.assertLess(missed["best"], scoring.MIN_MATCH_SCORE)
+
+    def test_somebody_who_joined_after_the_round_only_sees_the_count(self) -> None:
+        from kebplayground.web.app import _last_run_for
+
+        seed_store(count=3, seed=9)
+        self.client.post("/admin/run", data={"token": TOKEN})
+        # Signed up after that run, so there is nothing to explain yet.
+        self.join()
+        self.assertIsNone(_last_run_for(EMAIL))
+        self.assertIn("of 10", self.client.get("/").text)
 
     def test_a_round_offers_a_match_with_a_place(self) -> None:
         seed_store()
@@ -421,6 +449,35 @@ class TestTheRound(WebTest):
             store.respond_to_match(match["id"], "nobody@aucklanduni.ac.nz", "declined")
         )
         self.assertEqual(store.get_match(match["id"])["state"], "offered")
+
+    def test_the_tips_only_name_what_is_true_of_you(self) -> None:
+        from kebplayground.web.app import _tips
+
+        self.join()
+        plain = _tips(store.get_user(EMAIL))
+        # GOOD_FORM lists one interest, ticks every gender and sets no age
+        # range or area, so only the interests tip applies.
+        self.assertEqual(len(plain), 1)
+        self.assertIn("more interests", plain[0])
+
+        picky = dict(GOOD_FORM, pref_age_min="20", pref_age_max="22",
+                     same_area_only="on")
+        picky["pref_genders"] = ["Female"]
+        picky["interests"] = sorted(vocabulary.INTERESTS)[:6]
+        self.client.post("/profile/edit", data=picky)
+        said = " ".join(_tips(store.get_user(EMAIL)))
+        self.assertNotIn("more interests", said)
+        self.assertIn("age range from 20 to 22", said)
+        self.assertIn("who you are happy", said)
+        self.assertIn("part of Auckland", said)
+
+    def test_somebody_open_to_everything_is_told_nothing(self) -> None:
+        from kebplayground.web.app import _tips
+
+        self.sign_in()
+        wide = dict(GOOD_FORM, interests=sorted(vocabulary.INTERESTS)[:6])
+        self.client.post("/signup", data=wide)
+        self.assertEqual(_tips(store.get_user(EMAIL)), [])
 
     def test_pause_and_resume(self) -> None:
         self.join()

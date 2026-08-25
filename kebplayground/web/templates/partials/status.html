@@ -27,6 +27,32 @@
   <form method="post" action="/resume" class="actions centre">
     <button type="submit">Join the next round</button>
   </form>
+{% elif missed %}
+  <h2>Nobody quite suited you.</h2>
+  <p>Everybody kiWe could offer scored under {{ '%.2f' % missed.floor }}, so
+     nobody was worth offering. You stay in the pool for the next round.</p>
+
+  <p class="eyebrow">Your closest so far</p>
+  <div class="scale">
+    <span class="bar">
+      <span class="bar-fill" style="width: {{ '%.0f' % (missed.best * 100) }}%"></span>
+      <span class="scale-floor" style="left: {{ '%.0f' % (missed.floor * 100) }}%"></span>
+    </span>
+    <span class="bar-figure">{{ '%.2f' % missed.best }}</span>
+  </div>
+  <p class="hint">The line is {{ '%.2f' % missed.floor }}, what a pair has to clear.</p>
+
+  {% if tips %}
+  <p class="eyebrow">Raise your odds</p>
+  <ul class="tips">
+    {% for tip in tips %}<li>{{ tip }}</li>{% endfor %}
+  </ul>
+  <p class="actions centre"><a class="button" href="/profile/edit">Edit your profile</a></p>
+  {% endif %}
+
+  <form method="post" action="/pause" class="actions centre">
+    <button type="submit" class="quiet">Pause my place</button>
+  </form>
 {% else %}
   <h2>You are {{ waiting_count }} of {{ pool_size }}.</h2>
   {% if waiting_count >= pool_size %}

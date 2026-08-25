@@ -214,6 +214,57 @@ def _shared(doc: dict[str, object], partner: dict[str, object]) -> dict[str, obj
     }
 
 
+# How few interests counts as few. Interests carry the most weight of any
+# measurement, so somebody who listed a couple has the most to gain by
+# listing more.
+FEW_INTERESTS = 5
+
+
+def _tips(doc: dict[str, object]) -> list[str]:
+    """What this person could change to be easier to match.
+
+    Only says a thing when it is true of them, so the list is empty for
+    somebody who has already opened up as far as they can.
+    """
+    user = db.doc_to_user(doc)
+    preferences = user.preferences
+    tips = []
+
+    if len(user.interests) < FEW_INTERESTS:
+        tips.append(
+            f"Add a few more interests. You have {len(user.interests)}, "
+            "and interests count for more than anything else."
+        )
+
+    age = preferences.get("age")
+    if isinstance(age, tuple):
+        low, high = age
+        tips.append(f"Widen your age range from {low} to {high} by a year either way.")
+
+    genders = preferences.get("genders")
+    if genders and len(genders) < len(vocabulary.GENDERS):  # type: ignore[arg-type]
+        tips.append("Open up on who you are happy to be matched with.")
+
+    if preferences.get(vocabulary.SAME_AREA_ONLY):
+        tips.append("Turn off matching only within your part of Auckland.")
+
+    return tips
+
+
+def _last_run_for(user_id: str) -> dict[str, object] | None:
+    """The last run this person took part in but came out of unmatched."""
+    run = store.latest_run()
+    if run is None:
+        return None
+    result = run["result"]
+    if user_id not in result.get("waiting", []):  # type: ignore[union-attr]
+        return None
+    return {
+        "floor": result.get("floor", 0.0),  # type: ignore[union-attr]
+        "best": result.get("best", {}).get(user_id, 0.0),  # type: ignore[union-attr]
+    }
+
+
 def _home_context(doc: dict[str, object]) -> dict[str, object]:
     """Everything both the home page and its polled fragment need."""
     status = str(doc.get("status") or "waiting")
@@ -234,6 +285,10 @@ def _home_context(doc: dict[str, object]) -> dict[str, object]:
         "shared": _shared(doc, partner) if match and partner else {},
         "waiting_count": store.count_waiting(),
         "pool_size": matchflow.pool_size(store),
+        # Set only when a run has already been through without finding them
+        # anybody, which is the one case worth explaining.
+        "missed": _last_run_for(str(doc["id"])) if status == "waiting" else None,
+        "tips": _tips(doc) if status == "waiting" else [],
     }
 
 
