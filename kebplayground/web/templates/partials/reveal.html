@@ -1,0 +1,42 @@
+{# The card both the offer and the acceptance show: what the two have in
+   common, and how each measurement scored. #}
+{% if match.suggestion %}
+<div class="suggestion">
+  <p class="eyebrow">Something to do</p>
+  <p>{{ match.suggestion }}</p>
+</div>
+{% endif %}
+
+{% if shared.study or shared.interests or shared.languages %}
+<div class="shared">
+  {% if shared.study %}
+  <p class="eyebrow">You both study</p>
+  <div class="choices"><span class="chip">{{ shared.study }}</span></div>
+  {% endif %}
+  {% if shared.interests %}
+  <p class="eyebrow">You both like</p>
+  <div class="choices">
+    {% for interest in shared.interests %}<span class="chip">{{ interest }}</span>{% endfor %}
+  </div>
+  {% endif %}
+  {% if shared.languages %}
+  <p class="eyebrow">You both speak</p>
+  <div class="choices">
+    {% for language in shared.languages %}<span class="chip">{{ language }}</span>{% endfor %}
+  </div>
+  {% endif %}
+</div>
+{% endif %}
+
+{% if bars %}
+<p class="eyebrow">How you two line up</p>
+<dl class="bars">
+  {% for bar in bars %}
+  <dt>{{ bar.label }}</dt>
+  <dd>
+    <span class="bar"><span class="bar-fill" style="width: {{ bar.percent }}%"></span></span>
+    <span class="bar-figure">{{ bar.percent }}%</span>
+  </dd>
+  {% endfor %}
+</dl>
+{% endif %}

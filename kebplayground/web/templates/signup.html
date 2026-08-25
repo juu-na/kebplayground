@@ -1,0 +1,142 @@
+{% extends "base.html" %}
+{% block title %}{{ heading }} · kiWe{% endblock %}
+{% block content %}
+<h1>{{ heading }}</h1>
+
+{% if error %}<p class="error">{{ error }}</p>{% endif %}
+
+<form class="card" method="post" action="{{ action }}">
+  <div class="field">
+    <label for="name">Name</label>
+    <input id="name" name="name" required value="{{ form.get('name', '') }}">
+  </div>
+
+  <div class="field">
+    <label>Email</label>
+    <p class="fixed-value">{{ email }}</p>
+    <p class="hint">Taken from the account you signed in with.</p>
+  </div>
+
+  <div class="field">
+    <label for="age">Age</label>
+    <input id="age" name="age" type="number" min="16" max="99" required value="{{ form.get('age', '') }}">
+  </div>
+
+  <div class="field">
+    <label for="major">Major</label>
+    <select id="major" name="major" required>
+      <option value="" disabled {% if not form.get('major') %}selected{% endif %}>Pick one</option>
+      {% for faculty, majors in options.majors_by_faculty.items() %}
+      <optgroup label="{{ faculty }}">
+        {% for major in majors %}
+        <option value="{{ major }}" {% if form.get('major') == major %}selected{% endif %}>{{ major }}</option>
+        {% endfor %}
+      </optgroup>
+      {% endfor %}
+    </select>
+  </div>
+
+  <div class="field">
+    <label for="year">Year</label>
+    <select id="year" name="year" required>
+      {% for year in options.years %}
+      <option value="{{ year }}" {% if form.get('year') == year|string %}selected{% endif %}>Year {{ year }}</option>
+      {% endfor %}
+    </select>
+  </div>
+
+  <div class="field">
+    <label for="mbti">MBTI</label>
+    <select id="mbti" name="mbti" required>
+      <option value="" disabled {% if not form.get('mbti') %}selected{% endif %}>Pick one</option>
+      {% for mbti in options.mbtis %}
+      <option value="{{ mbti }}" {% if form.get('mbti') == mbti %}selected{% endif %}>{{ mbti }}</option>
+      {% endfor %}
+    </select>
+  </div>
+
+  <fieldset class="field">
+    <legend>Gender</legend>
+    <div class="choices">
+      {% for gender in options.genders %}
+      <label class="choice"><input type="radio" name="gender" value="{{ gender }}" required
+        {% if form.get('gender') == gender %}checked{% endif %}> {{ gender }}</label>
+      {% endfor %}
+    </div>
+  </fieldset>
+
+  <div class="field">
+    <label for="area">Where in Auckland</label>
+    <select id="area" name="area" required>
+      <option value="" disabled {% if not form.get('area') %}selected{% endif %}>Pick one</option>
+      {% for area in options.areas %}
+      <option value="{{ area }}" {% if form.get('area') == area %}selected{% endif %}>{{ area }}</option>
+      {% endfor %}
+    </select>
+  </div>
+
+  <fieldset class="field">
+    <legend>Languages besides English</legend>
+    <div class="choices">
+      {% for language in options.languages %}
+      <label class="choice"><input type="checkbox" name="languages" value="{{ language }}"
+        {% if language in form.get('languages', []) %}checked{% endif %}> {{ language }}</label>
+      {% endfor %}
+    </div>
+  </fieldset>
+
+  <fieldset class="field">
+    <legend>Interests</legend>
+    <div class="choices">
+      {% for interest in options.interests %}
+      <label class="choice"><input type="checkbox" name="interests" value="{{ interest }}"
+        {% if interest in form.get('interests', []) %}checked{% endif %}> {{ interest }}</label>
+      {% endfor %}
+    </div>
+  </fieldset>
+
+  <fieldset class="field">
+    <legend>Looking for</legend>
+    <div class="choices">
+      {% for mode in options.modes %}
+      <label class="choice"><input type="radio" name="mode" value="{{ mode }}" required
+        {% if form.get('mode') == mode %}checked{% endif %}> {{ mode }}</label>
+      {% endfor %}
+    </div>
+  </fieldset>
+
+  <fieldset class="field">
+    <legend>Which gender(s) do you want to be matched with?</legend>
+    <p class="hint">Tick every one you are happy with.</p>
+    <div class="choices">
+      {% for gender in options.genders %}
+      <label class="choice"><input type="checkbox" name="pref_genders" value="{{ gender }}"
+        {% if gender in form.get('pref_genders', []) %}checked{% endif %}> {{ gender }}</label>
+      {% endfor %}
+    </div>
+  </fieldset>
+
+  <fieldset class="field">
+    <legend>Their age</legend>
+    <p class="hint">Leave both empty for no preference.</p>
+    <div class="pair">
+      <input name="pref_age_min" type="number" min="16" max="99" placeholder="from"
+        value="{{ form.get('pref_age_min', '') }}">
+      <input name="pref_age_max" type="number" min="16" max="99" placeholder="to"
+        value="{{ form.get('pref_age_max', '') }}">
+    </div>
+  </fieldset>
+
+  <fieldset class="field">
+    <legend>Where they are</legend>
+    <div class="choices">
+      <label class="choice"><input type="checkbox" name="same_area_only" value="on"
+        {% if form.get('same_area_only') %}checked{% endif %}> Only my part of Auckland</label>
+    </div>
+  </fieldset>
+
+  <div class="actions">
+    <button type="submit">{{ button }}</button>
+  </div>
+</form>
+{% endblock %}

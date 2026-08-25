@@ -10,12 +10,7 @@ import json
 from pathlib import Path
 from typing import cast
 
-from . import constraints, data, llm, matcher, scoring
-from .models import pair_key
-
-# Which algorithm a run uses. There is no flag for it: picking the algorithm
-# is a decision the project makes once, not something a user chooses.
-ALGORITHM = "blossom"
+from . import data, pipeline, scoring
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -28,7 +23,7 @@ def build_parser() -> argparse.ArgumentParser:
                        repeated exactly
       --min-score N    the lowest score worth offering, so a run can be
                        loosened or tightened without touching the code
-      --explain        also ask the LLM to write the match messages
+      --explain        also ask the LLM for an activity for each pair
       --cache PATH     where the LLM answers are kept between runs,
                        .cache/llm.json by default
       --output PATH    where to write the results as JSON
@@ -52,8 +47,8 @@ def run(args: argparse.Namespace) -> dict[str, object]:
     Output: a dict holding the matches, the numbers judging the run, and any
     messages that were written.
 
-    This is the same shape the Phase 2 API sends back. The FastAPI layer
-    calls this function instead of repeating the steps itself.
+    The matching itself lives in pipeline.run_matching, which the Phase 2
+    web layer calls with the same arguments.
     """
     # read users from csv or generate test users
     if args.input is None:
@@ -61,38 +56,12 @@ def run(args: argparse.Namespace) -> dict[str, object]:
     else:
         users = data.load_users(Path(args.input))
 
-    # only the people currently waiting take part in a run
-    waiting = [user for user in users if user.status == "waiting"]
-
-    # build H, then S over the pairs worth offering
-    allowed = constraints.build_allow_table(waiting)
-    scores, modes, allowed = scoring.build_score_table(waiting, allowed, args.min_score)
-
-    matches = matcher.ALGORITHMS[ALGORITHM](scores, allowed)
-    evaluation = scoring.evaluate(waiting, matches, scores, modes, allowed)
-
-    # when --explain was given, call llm.explain for each matched pair
-    user_map = {user.id: user for user in waiting}
-    records = []
-
-    for a, b in matches:
-        key = pair_key(a, b)
-        entry = {"a": a, "b": b, "score": scores[key], "mode": modes[key]}
-        if args.explain:
-            _, _, breakdown = scoring.score_pair(user_map[a], user_map[b])
-            entry["message"] = llm.explain(
-                user_map[a],
-                user_map[b],
-                scores[key],
-                modes[key],
-                breakdown,
-                cache=Path(args.cache) if args.cache else None,
-            )
-        records.append(entry)
-
-    result = {"algo": ALGORITHM, "matches": records}
-    result.update(evaluation)
-    return result
+    return pipeline.run_matching(
+        users,
+        min_score=args.min_score,
+        explain=args.explain,
+        cache=Path(args.cache) if args.cache else None,
+    )
 
 
 def print_table(result: dict[str, object]) -> None:
@@ -108,7 +77,7 @@ def print_table(result: dict[str, object]) -> None:
             f"{entry['a']} {entry['b']}  {entry['mode']:<10} "
             f"{round(cast(float, entry['score']), 2)}"
         )
-        message = entry.get("message")
+        message = entry.get("suggestion")
         if message:
             line += f"  {message}"
         print(line)

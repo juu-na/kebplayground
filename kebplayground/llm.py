@@ -12,8 +12,10 @@ import json
 import os
 import re
 import sys
+import threading
 from pathlib import Path
 
+from . import vocabulary
 from .models import User
 
 MODEL = "gemini-3.6-flash"
@@ -23,6 +25,11 @@ MODEL = "gemini-3.6-flash"
 API_KEY = "GEMINI_API_KEY"
 
 _already_said: set[str] = set()
+
+# Guards the cache file. A run asks for several messages at once, and the
+# cache is read and written whole, so two writers would drop each other's
+# answers.
+_cache_lock = threading.Lock()
 
 
 def _say_once(note: str) -> None:
@@ -60,41 +67,55 @@ def _api_key() -> str | None:
 
 
 SYSTEM_PROMPT = """\
-You write a short message shown to two people who have just been matched by
-an automated matching system.
+You suggest one thing two university students could do together the first
+time they meet.
 
-You will be given both users' profiles, the score they were matched with,
-and a breakdown of the separate measurements that made up that score (for
-example timetable overlap, shared major, shared interests). The matching
-decision has already been made. Your only job is to explain it in plain
-language and give the two of them a reason to say hello.
+Both study at the University of Auckland city campus. They have been matched
+by an automated system and have never met. You will be given both profiles
+and whether they were matched for friendship or for a date.
 
-Write one message, addressed to both of them together, that:
-- points to one or two specific reasons they were matched
-- suggests one simple, low-effort first step they could take
+Suggest one activity, and make it specific to these two people rather than
+something you would say to anybody. Draw on the whole of both profiles: what
+they share, what is different and worth swapping notes on, their subjects,
+their languages, their personalities and how old they are.
 
 Rules:
-- Only use reasons that appear in the measurements you were given. Do not
-  invent a shared trait, guess at something not in the data, or mention a
-  measurement you were not handed.
-- Write for the connection named in the message. Never suggest a date to two
-  people who were matched on friendship.
-- Keep the tone warm and casual, like a friend making an introduction, not
-  corporate or robotic.
-- If the user's purpose is to seek a romantic partner, write the message in
-  a flirty tone
-- Two to three sentences. Stay under 300 characters.
-- Output only the message itself. No greeting, no signature, no labels like
-  "Message:".
+- Somewhere public, on or near the city campus. Never a private home.
+- Pick things that cost little by their nature, such as a walk, a coffee, a
+  look round a gallery. Never mention money, prices, or how cheap something
+  is, and never call anything cheap, budget or affordable. Say what it is,
+  not what it costs.
+- No alcohol.
+- Nothing needing a booking, a membership, or gear they may not own.
+- Suitable for two strangers meeting in daylight.
+- Match the connection they asked for. Never suggest anything romantic to
+  two people matched on friendship.
+- Say what to do, not where to meet. They are told where separately.
+- Two sentences at most, under 300 characters.
+- Output only the suggestion. No greeting, no signature, no labels.
 """
+
+# Words that mean the suggestion broke the rules above badly enough to throw
+# away. A net rather than a guarantee: it catches the obvious misses, and
+# the wording of the prompt does the rest.
+UNSAFE_WORDS = (
+    "alcohol", "bar", "beer", "cocktail", "drinks", "pub", "wine",
+    "apartment", "flat", "home", "hotel", "my place", "your place",
+)
+
+# Words that make the suggestion read as though the two of them are short of
+# money. Turned down for the same reason as the rest: the rules said not to,
+# and a reply that ignores them gets thrown away.
+PENNY_PINCHING = ("affordable", "bargain", "budget", "cheap", "broke", "inexpensive")
 
 
 def describe(user: User) -> str:
+    """One user, as much of them as the model can use."""
+    languages = ", ".join(sorted(user.languages)) or "English only"
+    interests = ", ".join(sorted(user.interests)) or "none listed"
     return (
-        f"User {user.id}: {user.major} {user.faculty}, year {user.year}, "
-        f"age {user.age}, languages {sorted(user.languages)}, "
-        f"interests {sorted(user.interests)}, area {user.area}, "
-        f"after {user.mode}"
+        f"{user.major} ({user.faculty}), year {user.year}, age {user.age}, "
+        f"{user.mbti}. Speaks {languages}. Into {interests}."
     )
 
 
@@ -107,34 +128,36 @@ def build_prompt(
 ) -> str:
     """Turn one match into the message sent to the model.
 
-    Input: the two matched users, their score, and the separate measurements
-    from scoring.score_pair.
-    Output: one string.
-
-    To implement: state both profiles, the score, and the measurements.
-    Pointing out which measurements came back highest gives the model
-    something definite to name as the reason, rather than leaving it to
-    guess.
+    Both profiles in full, plus what they already have in common. The shared
+    things are spelled out so the model does not have to spot them, and the
+    rest of each profile is there so it can suggest something that suits the
+    two of them rather than only their overlap.
     """
-    usera = describe(a)
-    userb = describe(b)
+    shared_interests = sorted(a.interests & b.interests)
+    shared_languages = sorted(a.languages & b.languages)
 
-    ranked = sorted(breakdown.items(), key=lambda item: item[1], reverse=True)
-    measurement_lines = "\n".join(f"  - {name}: {value:.2f}" for name, value in ranked)
-    top_name, top_value = ranked[0]
+    common = []
+    if a.major == b.major:
+        common.append(f"both study {a.major}")
+    elif a.faculty == b.faculty:
+        common.append(f"both in the {a.faculty}")
+    if shared_interests:
+        common.append("both into " + ", ".join(shared_interests))
+    if shared_languages:
+        common.append("both speak " + ", ".join(shared_languages))
+
+    already = "; ".join(common) if common else "nothing obvious in common"
 
     return (
-        f"{usera}\n"
-        f"{userb}\n\n"
-        f"Proposed connection: {mode}\n"
-        f"Match score: {score:.2f}\n"
-        f"Measurements:\n{measurement_lines}\n\n"
-        f"The highest-scoring measurement is {top_name} ({top_value:.2f}). "
-        f"Write the match message now."
+        f"First person: {describe(a)}\n"
+        f"Second person: {describe(b)}\n\n"
+        f"Matched for: {mode}\n"
+        f"Already in common: {already}\n\n"
+        f"Suggest what they should do."
     )
 
 
-def explain(
+def suggest(
     a: User,
     b: User,
     score: float,
@@ -142,43 +165,63 @@ def explain(
     breakdown: dict[str, float],
     cache: Path | None = None,
 ) -> str:
-    """Get the message for one matched pair.
+    """Get the activity suggestion for one matched pair.
 
     Input: the details of the match, and an optional file of saved answers.
-    Output: the text of the message.
+    Output: the text shown to both of them.
 
-    To implement: look in the saved answers first, and return the stored
-    message if this pair is already there. Otherwise call the API with
-    SYSTEM_PROMPT and the built message, check the reply with verify, save
-    it, and return it.
+    Why they were matched is worked out in code, by why(), which is better at
+    facts than the model is. The model is asked for the part code is bad at:
+    one thing these two in particular could go and do.
 
-    If the API call fails, return a plain message built from the
-    measurements rather than raising an error, so the rest of the run still
-    finishes.
+    A failed call gives the written suggestion rather than raising, so the
+    rest of the run still finishes.
     """
     key = "|".join(sorted((a.id, b.id)))
 
-    saved: dict[str, str] = {}
-    if cache is not None and cache.exists():
-        saved = json.loads(cache.read_text())
+    if cache is not None:
+        with _cache_lock:
+            saved = _read_cache(cache)
         if key in saved:
             return saved[key]
 
-    message = _ask_the_model(a, b, score, mode, breakdown)
-    if message is None:
-        # Nothing is cached here. A plain message is what gets written when
-        # the model could not be reached, and caching it would keep handing
-        # it back on later runs that could have asked properly.
-        return plain_message(breakdown)
+    # Asked for outside the lock. This is the slow part, and holding the lock
+    # across it would put the pairs back into single file.
+    suggestion = _ask_the_model(a, b, score, mode, breakdown)
+    if suggestion is None:
+        # Nothing is cached here. This is what gets written when the model
+        # could not be reached, and caching it would keep handing it back on
+        # later runs that could have asked properly.
+        return plain_suggestion(a, b)
 
     if cache is not None:
-        # The cache lives in its own directory, which is not there on a first
-        # run. Without this the first answer worth keeping ends the run.
-        cache.parent.mkdir(parents=True, exist_ok=True)
-        saved[key] = message
-        cache.write_text(json.dumps(saved, indent=2))
+        with _cache_lock:
+            # Read again rather than reusing what was read above. Another
+            # pair may have written its own answer while this one was being
+            # asked for, and that answer has to survive.
+            saved = _read_cache(cache)
+            saved[key] = suggestion
+            # The cache lives in its own directory, which is not there on a
+            # first run. Without this the first answer worth keeping ends
+            # the run.
+            cache.parent.mkdir(parents=True, exist_ok=True)
+            cache.write_text(json.dumps(saved, indent=2))
 
-    return message
+    return suggestion
+
+
+def _read_cache(cache: Path) -> dict[str, str]:
+    """Read the saved answers, treating an unreadable file as empty.
+
+    A run cut off part way through a write leaves a half written file. That
+    is a reason to ask the model again, not to end the run.
+    """
+    if not cache.exists():
+        return {}
+    try:
+        return json.loads(cache.read_text())
+    except (json.JSONDecodeError, OSError):
+        return {}
 
 
 def _ask_the_model(
@@ -188,15 +231,15 @@ def _ask_the_model(
     mode: str,
     breakdown: dict[str, float],
 ) -> str | None:
-    """Ask the model for one message, or return None when it cannot be had.
+    """Ask the model for one suggestion, or None when it cannot be had.
 
     None covers every way this can go wrong: no key, no package, a failed
-    call, and a reply that verify turned down. The caller falls back to a
-    plain message either way, so the rest of the run still finishes.
+    call, and a reply that verify turned down. The caller falls back to the
+    written suggestion either way, so the rest of the run still finishes.
     """
     api_key = _api_key()
     if not api_key:
-        _say_once(f"{API_KEY} is not set, so the messages are the plain ones.")
+        _say_once(f"{API_KEY} is not set, so the suggestions are the written ones.")
         return None
 
     try:
@@ -208,23 +251,38 @@ def _ask_the_model(
             contents=build_prompt(a, b, score, mode, breakdown),
             config={"system_instruction": SYSTEM_PROMPT},
         )
-        message = (response.text or "").strip()
+        suggestion = (response.text or "").strip()
     except Exception as went_wrong:
-        _say_once(f"the model could not be reached ({went_wrong}), so the messages are the plain ones.")
+        _say_once(
+            f"the model could not be reached ({went_wrong}), "
+            "so the suggestions are the written ones."
+        )
         return None
 
-    if not verify(message, breakdown):
-        _say_once("a reply was turned down by verify, so that pair gets the plain message.")
+    if not verify(suggestion):
+        _say_once("a reply broke the rules, so that pair gets the written suggestion.")
         return None
 
-    return message
+    return suggestion
+
+
+def plain_suggestion(a: User, b: User) -> str:
+    """What to suggest when the model could not be asked.
+
+    Nothing clever, only something the two could actually do, built from
+    what they already share.
+    """
+    shared = sorted(a.interests & b.interests)
+    if shared:
+        return f"You are both into {shared[0].lower()}. Start there."
+    return "Grab a coffee between lectures and compare timetables."
 
 
 def plain_message(breakdown: dict[str, float]) -> str:
-    """The message shown when the model was not used.
+    """The measurements alone, in a sentence.
 
-    Built out of the measurements alone, so it names nothing that was not
-    measured.
+    The last fallback for why(), used when the pair have nothing concrete in
+    common to name.
     """
     ranked = sorted(breakdown.items(), key=lambda item: item[1], reverse=True)
     top_names = [name for name, value in ranked if value > 0][:2]
@@ -233,56 +291,80 @@ def plain_message(breakdown: dict[str, float]) -> str:
     return "You two were matched. Say hi and see what you have in common."
 
 
+def why(a: User, b: User, breakdown: dict[str, float]) -> str:
+    """Say what the pair actually have in common, without asking the model.
+
+    Reads the same two users the model would have been told about, so it can
+    name the shared major, interests and languages rather than only the
+    measurement that scored highest. Used when the model cannot be reached.
+    """
+    reasons = []
+
+    department = vocabulary.department_of(a.major)
+    if a.major == b.major:
+        reasons.append(f"you both study {a.major}")
+    elif department is not None and department == vocabulary.department_of(b.major):
+        reasons.append(f"you are both in {department}")
+    elif a.faculty == b.faculty:
+        reasons.append(f"you are both in the {a.faculty}")
+
+    shared_interests = sorted(a.interests & b.interests)
+    if shared_interests:
+        reasons.append(f"you share {_listed(shared_interests)}")
+
+    shared_languages = sorted(a.languages & b.languages)
+    if shared_languages:
+        reasons.append(f"you both speak {_listed(shared_languages)}")
+
+    if breakdown.get("mbti", 0.0) >= 0.8:
+        reasons.append(f"{a.mbti} and {b.mbti} get on")
+
+    if not reasons:
+        return plain_message(breakdown)
+
+    said = _listed(reasons[:3])
+    return said[0].upper() + said[1:] + ". Say hi!"
+
+
+def _listed(things: list[str]) -> str:
+    """Join for reading: "a", "a and b", "a, b and c"."""
+    if len(things) == 1:
+        return things[0]
+    return ", ".join(things[:-1]) + " and " + things[-1]
+
+
 # The longest message worth showing. The system prompt asks for the same
 # number, so a reply past it is one that ignored the instructions.
 LONGEST = 300
-
-# The words that give away which measurement a message is leaning on, one
-# entry per measurement in features.FEATURES. A message may only name a
-# measurement it was handed, so naming one that is missing from the
-# breakdown means the model made the reason up.
-REASON_WORDS: dict[str, tuple[str, ...]] = {
-    "interests": ("interest", "hobby", "hobbies"),
-    "languages": ("language",),
-    "major": ("major", "subject", "study the same", "both study"),
-    "age": ("age", "years old"),
-    "mbti": ("mbti", "personality", "introvert", "extrovert"),
-    "year": ("year", "first year", "same year"),
-    "area": ("area", "nearby", "live close", "same part of town"),
-}
-
 
 def _mentions(message: str, word: str) -> bool:
     """Whether a message uses one word, rather than merely containing it.
 
     Matching on the bare letters turned down any message using the word
     language, since it holds age inside it. The plural and the usual endings
-    still count, so interests matches interest.
+    still count, so drink matches drinks.
     """
     return re.search(rf"\b{re.escape(word)}(?:s|es|ed|ing)?\b", message) is not None
 
 
-def verify(message: str, breakdown: dict[str, float]) -> bool:
-    """Check the message the model wrote, before anyone sees it.
+def verify(suggestion: str) -> bool:
+    """Check what the model wrote, before anyone sees it.
 
-    Input: the model's reply, and the measurements it was given.
-    Output: True when the message is safe to show.
+    Turns down an empty answer, one past the length limit, and one naming
+    something the rules ruled out, such as a drink, somebody's flat, or how
+    little the whole thing costs.
 
-    To implement: turn down an empty message, one that is longer than the
-    limit, or one that gives a reason which is not in the measurements it
-    was handed.
+    This cannot tell whether a suggestion is a good idea, only whether it
+    broke a rule in a way that shows up in the words. Anything turned down
+    falls back to the written suggestion.
     """
-    if not message.strip():
+    if not suggestion.strip():
         return False
 
-    if len(message) > LONGEST:
+    if len(suggestion) > LONGEST:
         return False
 
-    lowered = message.lower()
-    for name, words in REASON_WORDS.items():
-        if name in breakdown:
-            continue
-        if any(_mentions(lowered, word) for word in words):
-            return False
-
-    return True
+    lowered = suggestion.lower()
+    return not any(
+        _mentions(lowered, word) for word in UNSAFE_WORDS + PENNY_PINCHING
+    )

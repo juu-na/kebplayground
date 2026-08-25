@@ -1,0 +1,81 @@
+{# The one block both the home page and its ten second poll render. #}
+{% if status == "offered" and match %}
+  <p class="eyebrow">{{ match.mode }}</p>
+  <h2>You and {{ partner.name if partner else "someone" }} lined up.</h2>
+    {% include "partials/reveal.html" %}
+  <div class="actions centre">
+    <form method="post" action="/match/respond">
+      <input type="hidden" name="answer" value="accepted">
+      <button type="submit">Say yes</button>
+    </form>
+    <form method="post" action="/match/respond">
+      <input type="hidden" name="answer" value="declined">
+      <button type="submit" class="quiet">Not this one</button>
+    </form>
+  </div>
+{% elif status == "accepted" and match %}
+  <p class="eyebrow">it is on</p>
+  <h2>Meet {{ partner.name if partner else "your match" }} at {{ match.place }}.</h2>
+  <p class="match-contact">Email them at <strong>{{ partner.contact if partner else "" }}</strong></p>
+    {% include "partials/reveal.html" %}
+{% elif status == "matching" %}
+  <h2>Finding your match.</h2>
+  <p>A round is going right now. This page keeps itself up to date.</p>
+{% elif status == "paused" %}
+  <h2>You are sitting this one out.</h2>
+  <p>You will not be matched until you come back in.</p>
+  <form method="post" action="/resume" class="actions centre">
+    <button type="submit">Join the next round</button>
+  </form>
+{% elif missed %}
+  {% set best = (missed.best * 100) | round | int %}
+  {% set line = (missed.floor * 100) | round | int %}
+  {% if missed.best < missed.floor %}
+  <h2>Nobody quite suited you.</h2>
+  <p>Everybody kiWe could offer came in under {{ line }}%, so nobody was
+     worth offering. You stay in the pool for the next round.</p>
+  {% else %}
+  <h2>Somebody suited you, but not only you.</h2>
+  <p>You came out {{ best }}% with somebody this round, well over the line.
+     They were an even better fit for someone else, so they went there. You
+     stay in the pool for the next round.</p>
+  {% endif %}
+
+  <p class="eyebrow">Your best so far</p>
+  <div class="scale">
+    <span class="bar">
+      <span class="bar-fill" style="width: {{ best }}%"></span>
+      <span class="scale-floor" style="left: {{ line }}%"></span>
+    </span>
+    <span class="bar-figure">{{ best }}%</span>
+  </div>
+  <p class="hint">The line is {{ line }}%, what a pair has to clear.</p>
+
+  {% if tips %}
+  {% if missed.best < missed.floor %}
+  <p class="eyebrow">Raise your odds</p>
+  {% else %}
+  <p class="eyebrow">More chances next round</p>
+  <p class="hint">Nothing is wrong with your profile. Widening these only
+     makes you harder to leave out when the pairs are drawn.</p>
+  {% endif %}
+  <ul class="tips">
+    {% for tip in tips %}<li>{{ tip }}</li>{% endfor %}
+  </ul>
+  <p class="actions centre"><a class="button" href="/profile/edit">Edit your profile</a></p>
+  {% endif %}
+
+  <form method="post" action="/pause" class="actions centre">
+    <button type="submit" class="quiet">Pause my place</button>
+  </form>
+{% else %}
+  <h2>You are {{ waiting_count }} of {{ pool_size }}.</h2>
+  {% if waiting_count >= pool_size %}
+  <p>The pool is full, so a round is about to start.</p>
+  {% else %}
+  <p>Matching starts once {{ pool_size }} people are waiting. This page keeps itself up to date.</p>
+  {% endif %}
+  <form method="post" action="/pause" class="actions centre">
+    <button type="submit" class="quiet">Pause my place</button>
+  </form>
+{% endif %}

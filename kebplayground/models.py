@@ -53,8 +53,8 @@ class User:
     mode: str
     # Anything extra, such as a preferred age range or gender preference.
     preferences: dict[str, object] = field(default_factory=dict)
-    # Where the user is up to. Only "waiting" users take part in a run.
-    # The rest exist so that Phase 2 does not have to change this file again.
+    # Where the user is up to, one of vocabulary.STATUSES. Only "waiting"
+    # users take part in a run.
     status: str = "waiting"
 
 

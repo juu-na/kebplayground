@@ -12,7 +12,7 @@ cli.py
   -> features.py    # measure each allowed pair on each thing being compared
   -> scoring.py     # turn those measurements into one score per pair, building S
   -> matcher.py     # decide who is matched with who
-  -> llm.py         # write the message explaining the match (optional)
+  -> llm.py         # suggest something the pair could go and do (optional)
   -> output         # the list of matches, on screen and as JSON
 ```
 
@@ -74,15 +74,18 @@ Measured over 30 runs of 60 made up users at the `0.6` floor: blossom 6.68 over 
 
 Gale-Shapley was tried and dropped. It settles a disagreement between two sides' preference orders, and it was dropped when `S` gave both halves of a pair the same number. Directional scoring has since brought a real disagreement back, so it is worth another look, though one pool of students is the stable roommates problem, and Gale-Shapley solves the two-sided one.
 
-`llm.py`: asks an LLM to write the message shown to a matched pair.
-- write a system prompt that asks for a match message giving a reason and a suggestion
-- connect to the API
-- send the system prompt along with the details of the match (both users, the kind of connection, the score and the feature measurements)
-- check response quality and format
-- output the message
+`llm.py`: writes the two things a matched pair are shown.
+
+Why they were matched is worked out in code, by `why()`, which names the shared major, interests and languages. It reads the two users, so it can be specific in a way the measurements alone cannot, and it never invents anything.
+
+What they could do about it is asked of the model, by `suggest()`. That is the part code is bad at: one activity that suits these two in particular, drawing on the whole of both profiles rather than only their overlap.
+- the system prompt holds the rules a suggestion has to meet: public, near the city campus, free or nearly, no alcohol, and suitable for two people who have not met
+- the prompt sends both profiles in full, plus what they already have in common spelled out
+- `verify` turns down an empty or over-long reply, and one naming something the rules ruled out. It cannot tell whether a suggestion is a good idea, only whether it broke a rule in a way the words give away
+- a turned down or failed reply falls back to `plain_suggestion`, so a live demo never shows nothing
 - runs after matching, never affects who gets matched
-- put it behind an `--explain` flag
-- save the replies to JSON (a fallback), so a failed API call cannot break the live demo
+- behind the `--explain` flag on the command line
+- replies are saved to JSON, so a repeat run costs nothing and a failed call cannot break the demo
 
 `cli.py`: runs the whole application from the command line and reads the arguments.
 - reading in the input file

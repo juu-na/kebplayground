@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+{% block title %}admin · kiWe{% endblock %}
+{% block content %}
+<h1>Admin</h1>
+
+{% if notice %}<p class="notice">{{ notice }}</p>{% endif %}
+
+<div class="card admin">
+  <h2>Signups</h2>
+  <p>{{ total }} in total, {{ waiting_count }} waiting</p>
+  <ul>
+    {% for mode, count in counts.items() %}
+    <li>{{ mode }}: {{ count }}</li>
+    {% endfor %}
+  </ul>
+  <ul>
+    {% for status, count in statuses.items() %}
+    <li>{{ status }}: {{ count }}</li>
+    {% endfor %}
+  </ul>
+</div>
+
+<div class="card admin">
+  <h2>Pool size</h2>
+  <p>A round starts on its own once {{ pool_size }} people are waiting.</p>
+  <form method="post" action="/admin/settings" class="actions">
+    <input type="hidden" name="token" value="{{ token }}">
+    <input name="pool_size" type="number" value="{{ pool_size }}" min="2" max="200">
+    <button type="submit">Save</button>
+  </form>
+</div>
+
+<div class="card admin">
+  <h2>Latest run</h2>
+  {% if run %}
+  <p>{{ run.created_at }}</p>
+  <ul>
+    {% for mode, numbers in run.result.modes.items() %}
+    <li>{{ mode }}: {{ numbers.pairs }} pairs, average {{ '%.2f' % numbers.average }},
+        worst off {{ '%.2f' % numbers.worst_off }}</li>
+    {% endfor %}
+  </ul>
+  <p>{{ run.result.waiting | length }} still waiting</p>
+  {% else %}
+  <p>No run yet.</p>
+  {% endif %}
+</div>
+
+<div class="card admin">
+  <h2>Actions</h2>
+  <form method="post" action="/admin/run" class="actions">
+    <input type="hidden" name="token" value="{{ token }}">
+    <button type="submit">Run the matching</button>
+  </form>
+  <form method="post" action="/admin/seed" class="actions">
+    <input type="hidden" name="token" value="{{ token }}">
+    <input name="count" type="number" value="12" min="2" max="200">
+    <button type="submit">Seed demo users</button>
+  </form>
+  <form method="post" action="/admin/reset" class="actions"
+        onsubmit="return confirm('Clear every signup and run?')">
+    <input type="hidden" name="token" value="{{ token }}">
+    <button type="submit" class="danger">Reset everything</button>
+  </form>
+  <p>
+    <a href="/admin/export.csv?token={{ token }}">Download signups</a> ·
+    <a href="/admin/matches.csv?token={{ token }}">Download matches</a>
+  </p>
+</div>
+{% endblock %}
