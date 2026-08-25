@@ -1,164 +1,254 @@
-/* The whole look lives here. The design team can replace this file without
-   touching any template or route. Light mode only. */
+/* The whole look lives here. Every colour, radius and font is a token at the
+   top, so a change to the theme is a change to this block. Light mode only,
+   mobile first: the content runs full width on a phone and stops growing on
+   anything bigger. */
 
 :root {
-  --ink: #1c1917;
-  --muted: #78716c;
-  --line: #e7e5e4;
-  --paper: #fafaf9;
-  --card: #ffffff;
-  --accent: #d97706;
-  --accent-ink: #ffffff;
-  --danger: #b91c1c;
+  --ink: #332A47;
+  --ink-deep: #1E1830;
+  --muted: #6B5F86;
+  --faint: #9A8FB5;
+
+  --page: #F4EFFF;
+  --card: #FFFBF2;
+  --line: #E0D6F7;
+  --tint: #F0EAFF;
+  --tint-deep: #E6DDFA;
+
+  --lilac: #B7A4EC;
+  --lilac-dark: #8A76CC;
+  --link: #7B63C9;
+  --link-dark: #5C46A6;
+  --cream: #FAE9A8;
+  --beak: #E0AC5F;
+  --danger: #B3261E;
+
+  --radius: 20px;
+  --radius-small: 14px;
+  --lift: 0 10px 26px rgba(51, 42, 71, 0.12);
+
+  --display: "Baloo 2", "Trebuchet MS", system-ui, sans-serif;
+  --body: "DM Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
 }
 
 * { box-sizing: border-box; }
 
 body {
   margin: 0;
-  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  font-family: var(--body);
   color: var(--ink);
-  background: var(--paper);
-  line-height: 1.5;
+  background: var(--page);
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
 }
+
+h1, h2, h3, legend, .brand {
+  font-family: var(--display);
+  letter-spacing: -0.01em;
+  line-height: 1.15;
+}
+h1 { font-size: 1.75rem; font-weight: 800; margin: 0 0 0.75rem; }
+h2 { font-size: 1.3rem; font-weight: 700; margin: 0 0 0.5rem; }
+
+a { color: var(--link); }
+a:hover { color: var(--link-dark); }
+
+/* --- frame --- */
 
 .site-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 0.75rem 1rem;
-  border-bottom: 1px solid var(--line);
+  gap: 0.75rem;
+  max-width: 30rem;
+  margin: 0 auto;
+  padding: 1rem;
 }
-.site-header a {
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  font-size: 1.4rem;
+  font-weight: 800;
   color: var(--ink);
   text-decoration: none;
-  font-weight: 600;
 }
+.brand svg { display: block; flex: none; }
+.sign-out {
+  font-size: 0.9rem;
+  color: var(--muted);
+  text-decoration: none;
+}
+.sign-out:hover { color: var(--ink); }
 
 .content {
-  max-width: 28rem;
+  max-width: 30rem;
   margin: 0 auto;
-  padding: 1rem 1rem 4rem;
+  padding: 0 1rem 4rem;
 }
-
-h1 { font-size: 1.5rem; }
-h2 { font-size: 1.1rem; }
 
 .card {
   background: var(--card);
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  padding: 1.25rem;
-  margin: 1rem 0;
+  border-radius: var(--radius);
+  box-shadow: var(--lift);
+  padding: 1.35rem;
+  margin: 0 0 1rem;
 }
-
 .centre { text-align: center; }
 
-.field { margin: 1rem 0; border: 0; padding: 0; }
-.field label, .field legend {
+/* --- form --- */
+
+.field { margin: 0 0 1.35rem; border: 0; padding: 0; }
+.field > label, .field legend {
   display: block;
-  font-weight: 600;
-  font-size: 0.9rem;
-  margin-bottom: 0.35rem;
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: 1rem;
+  margin: 0 0 0.4rem;
+  padding: 0;
 }
 
-input, select, button {
-  font: inherit;
-}
+input, select, button, textarea { font: inherit; }
 
 input:not([type="checkbox"]):not([type="radio"]), select {
   width: 100%;
-  padding: 0.6rem 0.7rem;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: var(--card);
+  padding: 0.7rem 0.8rem;
+  border: 2px solid var(--line);
+  border-radius: var(--radius-small);
+  background: #fff;
+  color: var(--ink);
+}
+input:focus-visible, select:focus-visible, button:focus-visible {
+  outline: 3px solid var(--lilac);
+  outline-offset: 2px;
 }
 
-.sign-out { font-weight: 400; font-size: 0.9rem; color: var(--muted); }
-
-a.button {
-  display: inline-block;
-  padding: 0.7rem 1.2rem;
-  border-radius: 8px;
-  background: var(--accent);
-  color: var(--accent-ink);
-  font-weight: 600;
-  text-decoration: none;
-}
-.actions.centre { justify-content: center; }
-
-.fixed-value {
-  margin: 0;
-  padding: 0.6rem 0.7rem;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: var(--paper);
-  color: var(--muted);
-}
-
-.hint {
-  margin: 0 0 0.4rem;
-  font-size: 0.85rem;
-  color: var(--muted);
-}
-
+/* Choices read as pills. The box stays visible, so the state is still clear
+   where :has() is not supported. */
 .choices {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(9rem, 1fr));
-  gap: 0.25rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
 }
 .choice {
-  display: flex;
+  display: inline-flex;
   align-items: center;
   gap: 0.45rem;
-  padding: 0.35rem 0.2rem;
+  padding: 0.45rem 0.8rem;
+  border-radius: 999px;
+  background: var(--tint);
+  color: var(--link-dark);
   font-size: 0.95rem;
+  font-weight: 500;
+  cursor: pointer;
 }
+.choice:has(input:checked) {
+  background: var(--ink);
+  color: var(--cream);
+}
+.choice input { accent-color: var(--lilac); margin: 0; }
+.choice:has(input:checked) input { accent-color: var(--cream); }
 
 .pair { display: flex; gap: 0.5rem; }
 
-.actions { margin: 1rem 0 0; display: flex; gap: 0.5rem; }
-button {
-  padding: 0.7rem 1.2rem;
-  border: 0;
-  border-radius: 8px;
-  background: var(--accent);
-  color: var(--accent-ink);
-  font-weight: 600;
-}
-button.danger { background: var(--danger); }
-
-.error, .notice {
-  padding: 0.6rem 0.8rem;
-  border-radius: 8px;
-  font-size: 0.95rem;
-}
-.error { background: #fef2f2; color: var(--danger); }
-.notice { background: #fffbeb; color: #92400e; }
-
-.eyebrow {
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  font-size: 0.8rem;
+.hint {
+  margin: 0 0 0.5rem;
+  font-size: 0.875rem;
   color: var(--muted);
-  margin-bottom: 0;
 }
-.match-message { font-size: 1.05rem; }
-.match-contact { margin-top: 1rem; }
-.match-score { color: var(--muted); font-size: 0.85rem; }
+.fixed-value {
+  margin: 0;
+  padding: 0.7rem 0.8rem;
+  border-radius: var(--radius-small);
+  background: var(--tint);
+  color: var(--muted);
+}
+
+/* --- buttons --- */
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  margin: 1.25rem 0 0;
+}
+.actions.centre { justify-content: center; }
+
+button, a.button {
+  display: inline-block;
+  padding: 0.75rem 1.4rem;
+  border: 0;
+  border-radius: var(--radius-small);
+  background: var(--ink);
+  color: var(--cream);
+  font-family: var(--display);
+  font-weight: 700;
+  text-decoration: none;
+  cursor: pointer;
+}
+button:hover, a.button:hover { background: var(--ink-deep); color: var(--cream); }
 
 button.quiet {
-  background: transparent;
-  color: var(--muted);
-  border: 1px solid var(--line);
+  background: var(--tint);
+  color: var(--link-dark);
 }
+button.quiet:hover { background: var(--tint-deep); color: var(--link-dark); }
+
+button.danger { background: var(--danger); color: #fff; }
+
+/* --- notes --- */
+
+.error, .notice {
+  margin: 0 0 1rem;
+  padding: 0.7rem 0.9rem;
+  border-radius: var(--radius-small);
+  font-size: 0.95rem;
+}
+.error { background: #FDECEA; color: var(--danger); }
+.notice { background: #FDF3D3; color: #6B4E12; }
+
+/* --- the match --- */
+
+.eyebrow {
+  margin: 0 0 0.35rem;
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  color: var(--faint);
+}
+.match-message {
+  font-size: 1.05rem;
+  margin: 0.75rem 0;
+}
+.match-contact {
+  margin: 1rem 0 0;
+  padding: 0.7rem 0.9rem;
+  border-radius: var(--radius-small);
+  background: var(--tint);
+}
+.match-score {
+  margin: 0.5rem 0 0;
+  color: var(--faint);
+  font-size: 0.85rem;
+}
+
+/* --- profile --- */
 
 .profile { margin: 0; }
 .profile dt {
-  font-size: 0.8rem;
+  font-family: var(--display);
+  font-size: 0.75rem;
+  font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--muted);
-  margin-top: 0.75rem;
+  letter-spacing: 0.07em;
+  color: var(--faint);
+  margin-top: 0.85rem;
 }
 .profile dd { margin: 0.1rem 0 0; }
+
+/* --- admin, which nobody but an organiser sees --- */
+
+.admin ul { margin: 0.25rem 0; padding-left: 1.1rem; }
+.admin li { color: var(--muted); }

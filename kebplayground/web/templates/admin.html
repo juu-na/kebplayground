@@ -1,11 +1,11 @@
 {% extends "base.html" %}
-{% block title %}admin · keb playground{% endblock %}
+{% block title %}admin · kiWe{% endblock %}
 {% block content %}
 <h1>Admin</h1>
 
 {% if notice %}<p class="notice">{{ notice }}</p>{% endif %}
 
-<div class="card">
+<div class="card admin">
   <h2>Signups</h2>
   <p>{{ total }} in total, {{ waiting_count }} waiting</p>
   <ul>
@@ -20,7 +20,7 @@
   </ul>
 </div>
 
-<div class="card">
+<div class="card admin">
   <h2>Pool size</h2>
   <p>A round starts on its own once {{ pool_size }} people are waiting.</p>
   <form method="post" action="/admin/settings" class="actions">
@@ -30,7 +30,7 @@
   </form>
 </div>
 
-<div class="card">
+<div class="card admin">
   <h2>Latest run</h2>
   {% if run %}
   <p>{{ run.created_at }}</p>
@@ -46,7 +46,7 @@
   {% endif %}
 </div>
 
-<div class="card">
+<div class="card admin">
   <h2>Actions</h2>
   <form method="post" action="/admin/run" class="actions">
     <input type="hidden" name="token" value="{{ token }}">

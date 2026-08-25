@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}{{ heading }} · kiwe{% endblock %}
+{% block title %}{{ heading }} · kiWe{% endblock %}
 {% block content %}
 <h1>{{ heading }}</h1>
 
@@ -57,10 +57,12 @@
 
   <fieldset class="field">
     <legend>Gender</legend>
-    {% for gender in options.genders %}
-    <label class="choice"><input type="radio" name="gender" value="{{ gender }}" required
-      {% if form.get('gender') == gender %}checked{% endif %}> {{ gender }}</label>
-    {% endfor %}
+    <div class="choices">
+      {% for gender in options.genders %}
+      <label class="choice"><input type="radio" name="gender" value="{{ gender }}" required
+        {% if form.get('gender') == gender %}checked{% endif %}> {{ gender }}</label>
+      {% endfor %}
+    </div>
   </fieldset>
 
   <div class="field">
@@ -95,23 +97,28 @@
 
   <fieldset class="field">
     <legend>Looking for</legend>
-    {% for mode in options.modes %}
-    <label class="choice"><input type="radio" name="mode" value="{{ mode }}" required
-      {% if form.get('mode') == mode %}checked{% endif %}> {{ mode }}</label>
-    {% endfor %}
+    <div class="choices">
+      {% for mode in options.modes %}
+      <label class="choice"><input type="radio" name="mode" value="{{ mode }}" required
+        {% if form.get('mode') == mode %}checked{% endif %}> {{ mode }}</label>
+      {% endfor %}
+    </div>
   </fieldset>
 
   <fieldset class="field">
     <legend>Which gender(s) do you want to be matched with?</legend>
     <p class="hint">Tick every one you are happy with.</p>
-    {% for gender in options.genders %}
-    <label class="choice"><input type="checkbox" name="pref_genders" value="{{ gender }}"
-      {% if gender in form.get('pref_genders', []) %}checked{% endif %}> {{ gender }}</label>
-    {% endfor %}
+    <div class="choices">
+      {% for gender in options.genders %}
+      <label class="choice"><input type="checkbox" name="pref_genders" value="{{ gender }}"
+        {% if gender in form.get('pref_genders', []) %}checked{% endif %}> {{ gender }}</label>
+      {% endfor %}
+    </div>
   </fieldset>
 
   <fieldset class="field">
-    <legend>Their age (leave empty for no preference)</legend>
+    <legend>Their age</legend>
+    <p class="hint">Leave both empty for no preference.</p>
     <div class="pair">
       <input name="pref_age_min" type="number" min="16" max="99" placeholder="from"
         value="{{ form.get('pref_age_min', '') }}">
@@ -122,8 +129,10 @@
 
   <fieldset class="field">
     <legend>Where they are</legend>
-    <label class="choice"><input type="checkbox" name="same_area_only" value="on"
-      {% if form.get('same_area_only') %}checked{% endif %}> Only match me with people in my part of Auckland</label>
+    <div class="choices">
+      <label class="choice"><input type="checkbox" name="same_area_only" value="on"
+        {% if form.get('same_area_only') %}checked{% endif %}> Only my part of Auckland</label>
+    </div>
   </fieldset>
 
   <div class="actions">

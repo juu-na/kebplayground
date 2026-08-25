@@ -1,17 +1,24 @@
 <!doctype html>
-<!-- Template context is frozen. Restyle through static/style.css, or adjust
-     markup inside the blocks, without renaming any form field. -->
+<!-- The look is all in static/style.css, which sets its colours, radii and
+     fonts as tokens at the top. Restyle there rather than in a template,
+     and leave the form field names alone. -->
 <html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{% block title %}keb playground{% endblock %}</title>
+  <title>{% block title %}kiWe{% endblock %}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@600;700;800&family=DM+Sans:wght@400;500;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/static/style.css">
   <script src="/static/htmx.min.js" defer></script>
 </head>
 <body>
   <header class="site-header">
-    <a href="/">keb playground</a>
+    <a class="brand" href="/">
+      {% include "partials/duck.svg" %}
+      kiWe
+    </a>
     {% if request.session.get("email") %}
     <a class="sign-out" href="/logout">Sign out</a>
     {% endif %}
