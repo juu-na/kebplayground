@@ -18,7 +18,6 @@ import csv
 import io
 import os
 import secrets
-import threading
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -28,9 +27,9 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
 
-from .. import data, pipeline, vocabulary
+from .. import data, vocabulary
 from ..models import User
-from . import auth, db
+from . import auth, db, matchflow
 
 # Local dev reads ADMIN_TOKEN and friends from .env. Deployed, the real
 # environment is already set and load_dotenv finds nothing.
@@ -50,12 +49,10 @@ templates = Jinja2Templates(directory=HERE / "templates")
 
 store = db.make_store()
 
-# Held while a match run is going, so two organisers cannot start one each.
-run_lock = threading.Lock()
-
 # The order the modes are offered in, friendship first. Anything registered
 # later and not named here comes after, so vocabulary stays the source.
 MODE_ORDER = ("friendship", "date")
+
 
 def _modes_in_order() -> list[str]:
     known = [mode for mode in MODE_ORDER if mode in vocabulary.MODES]
@@ -140,25 +137,53 @@ def logout(request: Request):
 
 
 @app.get("/", response_class=HTMLResponse)
-def home(request: Request, error: str = ""):
+def home(request: Request, error: str = "", notice: str = ""):
     """The front door, which depends on how far along the visitor is.
 
-    Not signed in, they get the sign in button. Signed in with a profile
-    already saved, they go to their own page. Otherwise they get the form.
+    Not signed in, they get the sign in button. Signed in without a profile,
+    the form. Otherwise their own home: the profile, and where their match
+    is up to.
     """
     email = auth.signed_in_email(request)
     if email is None:
         return render(request, "login.html", domain=auth.allowed_domain(), error=error)
-    if store.get_user(email) is not None:
-        return RedirectResponse("/me", status_code=303)
-    return render(
-        request,
-        "signup.html",
-        options=OPTIONS,
-        form={"name": auth.signed_in_name(request)},
-        email=email,
-        error=None,
-    )
+
+    doc = store.get_user(email)
+    if doc is None:
+        return render(
+            request,
+            "signup.html",
+            options=OPTIONS,
+            form={"name": auth.signed_in_name(request)},
+            email=email,
+            heading="Find your match",
+            action="/signup",
+            button="Sign up",
+            error=None,
+        )
+
+    return render(request, "home.html", notice=notice, **_home_context(doc))
+
+
+def _home_context(doc: dict[str, object]) -> dict[str, object]:
+    """Everything both the home page and its polled fragment need."""
+    status = str(doc.get("status") or "waiting")
+    match = None
+    partner = None
+    match_id = doc.get("match_id")
+    if match_id:
+        match = store.get_match(str(match_id))
+    if match:
+        other = match["b"] if match["a"] == doc["id"] else match["a"]
+        partner = store.get_user(str(other))
+    return {
+        "doc": doc,
+        "status": status,
+        "match": match,
+        "partner": partner,
+        "waiting_count": store.count_waiting(),
+        "pool_size": matchflow.pool_size(store),
+    }
 
 
 def _parse_signup(
@@ -216,6 +241,11 @@ def _parse_signup(
             preferences["age"] = (int(age_low), int(age_high))
         except ValueError:
             raise ValueError("age preference takes two whole numbers") from None
+    # The one soft preference the form asks for. Left out entirely when the
+    # box is unticked, which is how the rest of the codebase says "no
+    # preference".
+    if str(form.get("same_area_only", "")).strip():
+        preferences[vocabulary.SAME_AREA_ONLY] = True
     vocabulary.validate_preferences(preferences)
 
     user = User(
@@ -251,6 +281,7 @@ def signup(
     pref_genders: list[str] = Form([]),
     pref_age_min: str = Form(""),
     pref_age_max: str = Form(""),
+    same_area_only: str = Form(""),
 ):
     email = auth.signed_in_email(request)
     if email is None:
@@ -267,6 +298,7 @@ def signup(
         "mode": mode,
         "pref_age_min": pref_age_min,
         "pref_age_max": pref_age_max,
+        "same_area_only": same_area_only,
     }
     picked = {
         "languages": languages,
@@ -283,62 +315,193 @@ def signup(
             options=OPTIONS,
             form={**form, **picked},
             email=email,
+            heading="Find your match",
+            action="/signup",
+            button="Sign up",
             error=str(error),
         )
 
     store.add_user(db.user_to_doc(user, clean_name, email))
-    return RedirectResponse("/me", status_code=303)
+    matchflow.maybe_trigger(store)
+    return RedirectResponse("/", status_code=303)
 
 
-def _match_for(user_id: str) -> tuple[dict[str, object] | None, bool]:
-    """Return (the match entry for this user, whether any run exists)."""
-    run = store.latest_run()
-    if run is None:
-        return None, False
-    result = run["result"]
-    for entry in result["matches"]:  # type: ignore[index]
-        if user_id in (entry["a"], entry["b"]):
-            return entry, True
-    return None, True
-
-
-@app.get("/me", response_class=HTMLResponse)
-def me(request: Request):
-    email = auth.signed_in_email(request)
-    if email is None:
-        return RedirectResponse("/", status_code=303)
-    doc = store.get_user(email)
-    if doc is None:
-        # Signed in but no profile yet, so back to the form.
-        return RedirectResponse("/", status_code=303)
-
-    entry, has_run = _match_for(email)
-    if entry is None:
-        return render(request, "waiting.html", has_run=has_run)
-    partner_id = entry["b"] if entry["a"] == email else entry["a"]
-    partner = store.get_user(str(partner_id)) or {}
-    return render(
-        request,
-        "result.html",
-        name=doc["name"],
-        partner_name=partner.get("name", partner_id),
-        partner_contact=partner.get("contact", ""),
-        mode=entry["mode"],
-        score=entry["score"],
-        message=entry.get("message"),
-    )
+@app.get("/me")
+def me():
+    """Kept so older links still land somewhere sensible."""
+    return RedirectResponse("/", status_code=303)
 
 
 @app.get("/me/status", response_class=HTMLResponse)
 def me_status(request: Request):
+    """The fragment the home page polls.
+
+    Answers with the same state block the page was built with, so the phone
+    picks up a match without the page reloading.
+    """
     email = auth.signed_in_email(request)
     if email is None:
         return Response(headers={"HX-Redirect": "/"})
-    entry, has_run = _match_for(email)
-    if entry is not None:
-        # htmx follows this header, landing the phone on the result page.
-        return Response(headers={"HX-Redirect": "/me"})
-    return render(request, "partials/status.html", has_run=has_run)
+    doc = store.get_user(email)
+    if doc is None:
+        return Response(headers={"HX-Redirect": "/"})
+    return render(request, "partials/status.html", **_home_context(doc))
+
+
+# --- answering a match, and stepping out ---
+
+
+def _signed_in_doc(request: Request) -> dict[str, object] | None:
+    email = auth.signed_in_email(request)
+    return store.get_user(email) if email else None
+
+
+@app.post("/match/respond")
+def respond(request: Request, answer: str = Form("")):
+    doc = _signed_in_doc(request)
+    if doc is None:
+        return RedirectResponse("/", status_code=303)
+    if answer not in ("accepted", "declined"):
+        return RedirectResponse("/?error=unknown+answer", status_code=303)
+
+    match_id = doc.get("match_id")
+    if match_id:
+        state = store.respond_to_match(str(match_id), str(doc["id"]), answer)
+        if state == "declined":
+            # Both are back in the pool, which may be enough for a round.
+            matchflow.maybe_trigger(store)
+    return RedirectResponse("/", status_code=303)
+
+
+@app.post("/pause")
+def pause(request: Request):
+    doc = _signed_in_doc(request)
+    if doc is None:
+        return RedirectResponse("/", status_code=303)
+    if store.set_status_if(str(doc["id"]), "waiting", "paused"):
+        return RedirectResponse("/?notice=you+are+sitting+this+one+out", status_code=303)
+    return RedirectResponse(
+        "/?notice=too+late+to+pause%2C+a+round+is+going", status_code=303
+    )
+
+
+@app.post("/resume")
+def resume(request: Request):
+    doc = _signed_in_doc(request)
+    if doc is None:
+        return RedirectResponse("/", status_code=303)
+    if store.set_status_if(str(doc["id"]), "paused", "waiting"):
+        matchflow.maybe_trigger(store)
+    return RedirectResponse("/", status_code=303)
+
+
+# --- editing the profile ---
+
+
+@app.get("/profile/edit", response_class=HTMLResponse)
+def edit_form(request: Request):
+    doc = _signed_in_doc(request)
+    if doc is None:
+        return RedirectResponse("/", status_code=303)
+    return render(
+        request,
+        "signup.html",
+        options=OPTIONS,
+        form=_doc_to_form(doc),
+        email=str(doc["contact"]),
+        heading="Your profile",
+        action="/profile/edit",
+        button="Save",
+        error=None,
+    )
+
+
+def _doc_to_form(doc: dict[str, object]) -> dict[str, object]:
+    """Turn a stored user back into the shape the form template reads."""
+    user = db.doc_to_user(doc)
+    preferences = user.preferences
+    age = preferences.get("age")
+    return {
+        "name": doc.get("name", ""),
+        "major": user.major,
+        "year": str(user.year),
+        "age": str(user.age),
+        "mbti": user.mbti,
+        "gender": user.gender,
+        "area": user.area,
+        "mode": user.mode,
+        "languages": sorted(user.languages),
+        "interests": sorted(user.interests),
+        "pref_genders": sorted(preferences.get("genders") or []),
+        "pref_age_min": str(age[0]) if age else "",
+        "pref_age_max": str(age[1]) if age else "",
+        "same_area_only": "on" if preferences.get(vocabulary.SAME_AREA_ONLY) else "",
+    }
+
+
+@app.post("/profile/edit")
+def edit(
+    request: Request,
+    name: str = Form(""),
+    major: str = Form(""),
+    year: str = Form(""),
+    age: str = Form(""),
+    mbti: str = Form(""),
+    gender: str = Form(""),
+    area: str = Form(""),
+    mode: str = Form(""),
+    languages: list[str] = Form([]),
+    interests: list[str] = Form([]),
+    pref_genders: list[str] = Form([]),
+    pref_age_min: str = Form(""),
+    pref_age_max: str = Form(""),
+    same_area_only: str = Form(""),
+):
+    doc = _signed_in_doc(request)
+    if doc is None:
+        return RedirectResponse("/", status_code=303)
+    email = str(doc["id"])
+
+    form = {
+        "name": name,
+        "major": major,
+        "year": year,
+        "age": age,
+        "mbti": mbti,
+        "gender": gender,
+        "area": area,
+        "mode": mode,
+        "pref_age_min": pref_age_min,
+        "pref_age_max": pref_age_max,
+        "same_area_only": same_area_only,
+    }
+    picked = {
+        "languages": languages,
+        "interests": interests,
+        "pref_genders": pref_genders,
+    }
+    try:
+        user, clean_name = _parse_signup(email, form, picked)
+    except ValueError as error:
+        return render(
+            request,
+            "signup.html",
+            status_code=400,
+            options=OPTIONS,
+            form={**form, **picked},
+            email=str(doc["contact"]),
+            heading="Your profile",
+            action="/profile/edit",
+            button="Save",
+            error=str(error),
+        )
+
+    # A merge, not a replace: status, match_id and created_at belong to the
+    # matching and have to survive an edit. An edit while a match is on
+    # offer changes nothing about that match, only the next round.
+    fresh = db.user_to_doc(user, clean_name, str(doc["contact"]))
+    store.update_user(email, db.profile_fields(fresh))
+    return RedirectResponse("/?notice=profile+saved", status_code=303)
 
 
 # --- admin ------------------------------------------------------------------
@@ -358,6 +521,10 @@ def admin(request: Request, token: str = "", notice: str = ""):
     for doc in users:
         counts[str(doc["mode"])] = counts.get(str(doc["mode"]), 0) + 1
     run = store.latest_run()
+    statuses: dict[str, int] = {}
+    for doc in users:
+        key = str(doc.get("status") or "waiting")
+        statuses[key] = statuses.get(key, 0) + 1
     return render(
         request,
         "admin.html",
@@ -365,25 +532,41 @@ def admin(request: Request, token: str = "", notice: str = ""):
         notice=notice,
         total=len(users),
         counts=counts,
+        statuses=statuses,
+        waiting_count=store.count_waiting(),
+        pool_size=matchflow.pool_size(store),
         run=run,
     )
 
 
 @app.post("/admin/run")
 def admin_run(token: str = Form("")):
+    """Force a round on whoever is waiting, however few that is.
+
+    Run here rather than on a thread, so the admin sees the outcome on the
+    page they land on.
+    """
     _check_token(token)
-    if not run_lock.acquire(blocking=False):
+    if not matchflow.run_now(store):
         return RedirectResponse(
             f"/admin?token={token}&notice=a+run+is+already+going", status_code=303
         )
-    try:
-        users = [db.doc_to_user(doc) for doc in store.list_users()]
-        cache = Path(os.environ.get("LLM_CACHE_PATH", ".cache/llm.json"))
-        result = pipeline.run_matching(users, explain=True, cache=cache)
-        store.save_run(result)
-    finally:
-        run_lock.release()
     return RedirectResponse(f"/admin?token={token}&notice=run+finished", status_code=303)
+
+
+@app.post("/admin/settings")
+def admin_settings(token: str = Form(""), pool_size: int = Form(10)):
+    _check_token(token)
+    if pool_size < 2:
+        return RedirectResponse(
+            f"/admin?token={token}&notice=pool+size+has+to+be+2+or+more", status_code=303
+        )
+    store.set_settings({"pool_size": pool_size})
+    # A smaller pool may already be met by the people waiting.
+    matchflow.maybe_trigger(store)
+    return RedirectResponse(
+        f"/admin?token={token}&notice=pool+size+is+now+{pool_size}", status_code=303
+    )
 
 
 @app.post("/admin/reset")
@@ -405,6 +588,7 @@ def admin_seed(token: str = Form(""), count: int = Form(12)):
         email = f"demo{i}@{auth.allowed_domain()}"
         made = dataclasses.replace(user, id=email)
         store.add_user(db.user_to_doc(made, f"Demo {i}", email))
+    matchflow.maybe_trigger(store)
     return RedirectResponse(
         f"/admin?token={token}&notice=seeded+{count}", status_code=303
     )

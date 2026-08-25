@@ -1,11 +1,11 @@
 {% extends "base.html" %}
-{% block title %}sign up · keb playground{% endblock %}
+{% block title %}{{ heading }} · kiwe{% endblock %}
 {% block content %}
-<h1>Find your match</h1>
+<h1>{{ heading }}</h1>
 
 {% if error %}<p class="error">{{ error }}</p>{% endif %}
 
-<form class="card" method="post" action="/signup">
+<form class="card" method="post" action="{{ action }}">
   <div class="field">
     <label for="name">Name</label>
     <input id="name" name="name" required value="{{ form.get('name', '') }}">
@@ -120,8 +120,14 @@
     </div>
   </fieldset>
 
+  <fieldset class="field">
+    <legend>Where they are</legend>
+    <label class="choice"><input type="checkbox" name="same_area_only" value="on"
+      {% if form.get('same_area_only') %}checked{% endif %}> Only match me with people in my part of Auckland</label>
+  </fieldset>
+
   <div class="actions">
-    <button type="submit">Sign up</button>
+    <button type="submit">{{ button }}</button>
   </div>
 </form>
 {% endblock %}

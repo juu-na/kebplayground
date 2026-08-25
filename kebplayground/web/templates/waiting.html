@@ -1,7 +1,0 @@
-{% extends "base.html" %}
-{% block title %}waiting · keb playground{% endblock %}
-{% block content %}
-<div class="card centre" hx-get="/me/status" hx-trigger="every 10s" hx-swap="innerHTML">
-  {% include "partials/status.html" %}
-</div>
-{% endblock %}

@@ -4,6 +4,7 @@ The steps live in their own modules. This module only joins them, so that
 the command line and the Phase 2 web layer share the same run.
 """
 
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from . import constraints, llm, matcher, scoring
@@ -12,6 +13,12 @@ from .models import User, pair_key
 # Which algorithm a run uses. There is no flag for it: picking the algorithm
 # is a decision the project makes once, not something a user chooses.
 ALGORITHM = "blossom"
+
+# How many match messages are asked for at once. Each one is a network call
+# that spends nearly all its time waiting, so a few at a time turns a run
+# from a minute into a few seconds. Kept small to stay inside the API's rate
+# limit on a big run.
+MESSAGES_AT_ONCE = 4
 
 
 def run_matching(
@@ -37,24 +44,41 @@ def run_matching(
     matches = matcher.ALGORITHMS[ALGORITHM](scores, allowed)
     evaluation = scoring.evaluate(waiting, matches, scores, modes, allowed)
 
-    # when explain was asked for, call llm.explain for each matched pair
+    # The breakdown comes along whether or not a message was asked for, so
+    # that a caller can show what the pair scored on without paying for the
+    # LLM.
     user_map = {user.id: user for user in waiting}
     records = []
 
     for a, b in matches:
         key = pair_key(a, b)
-        entry = {"a": a, "b": b, "score": scores[key], "mode": modes[key]}
-        if explain:
-            _, _, breakdown = scoring.score_pair(user_map[a], user_map[b])
-            entry["message"] = llm.explain(
-                user_map[a],
-                user_map[b],
-                scores[key],
-                modes[key],
-                breakdown,
+        _, _, breakdown = scoring.score_pair(user_map[a], user_map[b])
+        records.append(
+            {
+                "a": a,
+                "b": b,
+                "score": scores[key],
+                "mode": modes[key],
+                "breakdown": breakdown,
+            }
+        )
+
+    if explain:
+        def write_message(entry: dict) -> str:
+            return llm.explain(
+                user_map[entry["a"]],
+                user_map[entry["b"]],
+                entry["score"],
+                entry["mode"],
+                entry["breakdown"],
                 cache=cache,
             )
-        records.append(entry)
+
+        # map keeps the answers in the order the matches were given, so a run
+        # reads the same however the threads finish.
+        with ThreadPoolExecutor(max_workers=MESSAGES_AT_ONCE) as pool:
+            for entry, message in zip(records, pool.map(write_message, records)):
+                entry["message"] = message
 
     result = {"algo": ALGORITHM, "matches": records}
     result.update(evaluation)

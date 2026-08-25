@@ -18,9 +18,10 @@ import unittest.mock
 
 from fastapi.testclient import TestClient
 
-from kebplayground import data, llm, pipeline
+from kebplayground import data, llm, pipeline, vocabulary
 from kebplayground.cli import build_parser, run
-from kebplayground.web import auth, db
+from kebplayground.models import User
+from kebplayground.web import auth, db, matchflow
 from kebplayground.web.app import app, store
 
 TOKEN = "test-token"
@@ -39,6 +40,33 @@ GOOD_FORM = {
     "interests": ["Coding"],
     "pref_genders": ["Female", "Male", "Non-binary"],
 }
+
+
+PARTNER = "ben@aucklanduni.ac.nz"
+
+
+def add_partner(email: str = PARTNER, **overrides) -> None:
+    """Store somebody who suits GOOD_FORM, and is not a made up user.
+
+    Not seeded, so they do not answer their own match, which is what lets a
+    test drive accept and decline by hand.
+    """
+    fields = {
+        "id": email,
+        "major": "Computer Science",
+        "faculty": "Faculty of Science",
+        "year": 2,
+        "age": 22,
+        "mbti": "INFJ",
+        "languages": frozenset({"Korean"}),
+        "gender": "Female",
+        "area": "Central",
+        "interests": frozenset({"Coding"}),
+        "mode": "friendship",
+        "preferences": {"genders": frozenset({"Female", "Male", "Non-binary"})},
+    }
+    fields.update(overrides)
+    store.add_user(db.user_to_doc(User(**fields), "Ben", email))
 
 
 def seed_store(count: int = 14, seed: int = 1) -> None:
@@ -155,10 +183,11 @@ class TestSignup(WebTest):
     def test_signup_inserts_and_redirects(self) -> None:
         answer = self.client.post("/signup", data=GOOD_FORM, follow_redirects=False)
         self.assertEqual(answer.status_code, 303)
-        self.assertEqual(answer.headers["location"], "/me")
+        self.assertEqual(answer.headers["location"], "/")
         self.assertEqual(len(store.list_users()), 1)
         doc = store.list_users()[0]
         self.assertEqual(doc["name"], "Ana")
+        self.assertEqual(doc["status"], "waiting")
 
     def test_the_address_becomes_the_id(self) -> None:
         self.client.post("/signup", data=GOOD_FORM)
@@ -168,9 +197,9 @@ class TestSignup(WebTest):
 
     def test_signing_in_again_finds_the_same_profile(self) -> None:
         self.client.post("/signup", data=GOOD_FORM)
-        answer = self.client.get("/", follow_redirects=False)
-        self.assertEqual(answer.status_code, 303)
-        self.assertEqual(answer.headers["location"], "/me")
+        page = self.client.get("/")
+        self.assertEqual(page.status_code, 200)
+        self.assertIn("Kia ora, Ana", page.text)
         self.assertEqual(len(store.list_users()), 1)
 
     def test_signup_turns_down_an_unregistered_major(self) -> None:
@@ -210,67 +239,267 @@ class TestSignup(WebTest):
         self.assertEqual(user.preferences["genders"], frozenset({"Female", "Non-binary"}))
 
 
-class TestResultPages(WebTest):
+class TestTheRound(WebTest):
+    """Signup, a round, and answering the match it produced."""
+
     def setUp(self) -> None:
         super().setUp()
         self.sign_in()
 
-    def test_without_a_session_me_goes_to_the_front_door(self) -> None:
+    def join(self) -> None:
+        self.client.post("/signup", data=GOOD_FORM)
+
+    def test_without_a_session_home_shows_the_sign_in(self) -> None:
         self.client.cookies.clear()
+        self.assertIn("Sign in with Google", self.client.get("/").text)
+
+    def test_me_redirects_home(self) -> None:
         answer = self.client.get("/me", follow_redirects=False)
         self.assertEqual(answer.headers["location"], "/")
 
-    def test_signed_in_without_a_profile_goes_back_to_the_form(self) -> None:
-        answer = self.client.get("/me", follow_redirects=False)
-        self.assertEqual(answer.headers["location"], "/")
-
-    def test_before_any_run_the_page_waits(self) -> None:
-        self.client.post("/signup", data=GOOD_FORM)
-        page = self.client.get("/me")
+    def test_before_a_round_the_page_counts_the_pool(self) -> None:
+        self.join()
+        page = self.client.get("/")
         self.assertEqual(page.status_code, 200)
-        self.assertIn("has not run yet", page.text)
+        self.assertIn("You are 1 of 10", page.text)
 
-    def test_after_a_run_an_unmatched_user_keeps_waiting(self) -> None:
-        self.client.post("/signup", data=GOOD_FORM)
+    def test_an_unmatched_user_goes_back_in_the_pool(self) -> None:
+        self.join()
         self.client.post("/admin/run", data={"token": TOKEN})
-        page = self.client.get("/me")
-        self.assertIn("Not matched this round", page.text)
+        self.assertEqual(store.get_user(EMAIL)["status"], "waiting")
+        self.assertIn("You are 1 of 10", self.client.get("/").text)
 
-    def test_a_matched_user_sees_the_partner(self) -> None:
+    def test_a_round_offers_a_match_with_a_place(self) -> None:
         seed_store()
         self.client.post("/admin/run", data={"token": TOKEN})
-        run_doc = store.latest_run()
-        assert run_doc is not None
-        entry = run_doc["result"]["matches"][0]
-        self.sign_in(str(entry["a"]))
-        page = self.client.get("/me")
-        self.assertIn("meet", page.text)
-        self.assertIn("Email them at", page.text)
-        # The mocked LLM answers None, so the message is the plain fallback.
-        self.assertIn("You two were matched on", page.text)
+        matches = store.list_matches()
+        self.assertGreater(len(matches), 0)
+        match = matches[0]
+        self.assertIn(match["place"], set(matchflow.MEETING_PLACES.values()))
+        # Seeded users answer on their own, so the pair is already settled.
+        self.assertEqual(match["state"], "accepted")
+        for uid in (match["a"], match["b"]):
+            self.assertEqual(store.get_user(uid)["status"], "accepted")
+            self.assertEqual(store.get_user(uid)["match_id"], match["id"])
 
-    def test_the_status_partial_redirects_once_matched(self) -> None:
-        seed_store()
+    def matched_pair(self) -> dict:
+        """Run a round with two real users who suit each other.
+
+        Built rather than generated, so the pair always clears the score
+        floor and the test is about the answering, not the matching.
+        """
+        self.join()
+        add_partner(PARTNER)
         self.client.post("/admin/run", data={"token": TOKEN})
-        run_doc = store.latest_run()
-        assert run_doc is not None
-        self.sign_in(str(run_doc["result"]["matches"][0]["a"]))
+        doc = store.get_user(EMAIL)
+        self.assertIsNotNone(doc["match_id"])
+        return store.get_match(str(doc["match_id"]))
+
+    def test_an_offered_match_shows_accept_and_decline(self) -> None:
+        self.matched_pair()
+        page = self.client.get("/")
+        self.assertIn("lined up", page.text)
+        self.assertIn("Say yes", page.text)
+        self.assertIn("Not this one", page.text)
+
+    def test_both_accepting_says_where_to_meet(self) -> None:
+        match = self.matched_pair()
+        other = match["b"] if match["a"] == EMAIL else match["a"]
+        store.respond_to_match(match["id"], other, "accepted")
+        self.client.post("/match/respond", data={"answer": "accepted"})
+
+        self.assertEqual(store.get_match(match["id"])["state"], "accepted")
+        self.assertEqual(store.get_user(EMAIL)["status"], "accepted")
+        page = self.client.get("/")
+        self.assertIn("Meet ", page.text)
+        self.assertIn(match["place"], page.text)
+
+    def test_declining_puts_both_back_in_the_pool(self) -> None:
+        match = self.matched_pair()
+        other = match["b"] if match["a"] == EMAIL else match["a"]
+        self.client.post("/match/respond", data={"answer": "declined"})
+
+        self.assertEqual(store.get_match(match["id"])["state"], "declined")
+        for uid in (EMAIL, other):
+            doc = store.get_user(uid)
+            self.assertEqual(doc["status"], "waiting")
+            self.assertIsNone(doc["match_id"])
+
+    def test_answering_twice_changes_nothing(self) -> None:
+        match = self.matched_pair()
+        self.client.post("/match/respond", data={"answer": "declined"})
+        self.client.post("/match/respond", data={"answer": "accepted"})
+        self.assertEqual(store.get_match(match["id"])["state"], "declined")
+
+    def test_a_stranger_cannot_answer_a_match(self) -> None:
+        match = self.matched_pair()
+        self.assertIsNone(
+            store.respond_to_match(match["id"], "nobody@aucklanduni.ac.nz", "declined")
+        )
+        self.assertEqual(store.get_match(match["id"])["state"], "offered")
+
+    def test_pause_and_resume(self) -> None:
+        self.join()
+        self.client.post("/pause")
+        self.assertEqual(store.get_user(EMAIL)["status"], "paused")
+        self.assertEqual(store.count_waiting(), 0)
+        self.assertIn("sitting this one out", self.client.get("/").text)
+
+        self.client.post("/resume")
+        self.assertEqual(store.get_user(EMAIL)["status"], "waiting")
+
+    def test_pause_is_refused_once_a_round_has_claimed_you(self) -> None:
+        self.join()
+        store.claim_waiting()
+        answer = self.client.post("/pause", follow_redirects=False)
+        self.assertIn("too+late", answer.headers["location"])
+        self.assertEqual(store.get_user(EMAIL)["status"], "matching")
+
+    def test_the_status_fragment_matches_the_page(self) -> None:
+        self.join()
+        self.assertIn("You are 1 of 10", self.client.get("/me/status").text)
+
+    def test_the_fragment_sends_a_stranger_home(self) -> None:
+        self.client.cookies.clear()
         answer = self.client.get("/me/status")
-        self.assertEqual(answer.headers.get("hx-redirect"), "/me")
+        self.assertEqual(answer.headers.get("hx-redirect"), "/")
 
-    def test_nobody_can_read_another_persons_match(self) -> None:
-        seed_store()
-        self.client.post("/admin/run", data={"token": TOKEN})
-        run_doc = store.latest_run()
-        assert run_doc is not None
-        other = str(run_doc["result"]["matches"][0]["a"])
-        # Signed in as somebody with no profile, asking for nothing in
-        # particular: there is no id to pass any more, so the only page on
-        # offer is the signed in user's own.
-        self.sign_in("stranger@aucklanduni.ac.nz")
-        answer = self.client.get("/me", follow_redirects=False)
-        self.assertEqual(answer.headers["location"], "/")
-        self.assertEqual(self.client.get(f"/me/{other}").status_code, 404)
+
+class TestProfileEdit(WebTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.sign_in()
+        self.client.post("/signup", data=GOOD_FORM)
+
+    def test_the_form_comes_back_filled_in(self) -> None:
+        page = self.client.get("/profile/edit")
+        self.assertEqual(page.status_code, 200)
+        self.assertIn('value="Ana"', page.text)
+        self.assertIn("Your profile", page.text)
+
+    def test_an_edit_saves_and_keeps_the_matching_fields(self) -> None:
+        before = store.get_user(EMAIL)
+        store.update_user(EMAIL, {"status": "paused"})
+
+        edited = dict(GOOD_FORM, name="Ana K", age="22", mode="date")
+        answer = self.client.post("/profile/edit", data=edited, follow_redirects=False)
+        self.assertEqual(answer.status_code, 303)
+
+        doc = store.get_user(EMAIL)
+        self.assertEqual(doc["name"], "Ana K")
+        self.assertEqual(doc["age"], 22)
+        self.assertEqual(doc["mode"], "date")
+        # Where they are up to is not the form's business.
+        self.assertEqual(doc["status"], "paused")
+        self.assertEqual(doc["created_at"], before["created_at"])
+
+    def test_a_bad_edit_changes_nothing(self) -> None:
+        answer = self.client.post("/profile/edit", data=dict(GOOD_FORM, major="Alchemy"))
+        self.assertEqual(answer.status_code, 400)
+        self.assertEqual(store.get_user(EMAIL)["major"], "Computer Science")
+
+    def test_the_area_preference_round_trips(self) -> None:
+        self.client.post("/profile/edit", data=dict(GOOD_FORM, same_area_only="on"))
+        user = db.doc_to_user(store.get_user(EMAIL))
+        self.assertIs(user.preferences["same_area_only"], True)
+        self.assertIn("checked", self.client.get("/profile/edit").text)
+
+    def test_leaving_the_area_box_alone_leaves_the_key_out(self) -> None:
+        user = db.doc_to_user(store.get_user(EMAIL))
+        self.assertNotIn("same_area_only", user.preferences)
+
+
+class TestRounds(WebTest):
+    """When a round starts on its own."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        # Run the round on this thread, so a test never waits on one.
+        patch = unittest.mock.patch.object(
+            matchflow, "_spawn", new=lambda work: work()
+        )
+        patch.start()
+        self.addCleanup(patch.stop)
+
+    def test_a_full_pool_starts_a_round(self) -> None:
+        store.set_settings({"pool_size": 4})
+        seed_store(count=4, seed=3)
+        matchflow.maybe_trigger(store)
+        self.assertIsNotNone(store.latest_run())
+
+    def test_a_short_pool_does_not(self) -> None:
+        store.set_settings({"pool_size": 4})
+        seed_store(count=3, seed=3)
+        matchflow.maybe_trigger(store)
+        self.assertIsNone(store.latest_run())
+
+    def test_the_last_signup_sets_a_round_going(self) -> None:
+        store.set_settings({"pool_size": 2})
+        seed_store(count=1, seed=4)
+        self.sign_in()
+        self.client.post("/signup", data=GOOD_FORM)
+        self.assertIsNotNone(store.latest_run())
+
+    def test_lowering_the_pool_size_starts_a_round(self) -> None:
+        seed_store(count=4, seed=3)
+        self.assertIsNone(store.latest_run())
+        self.client.post("/admin/settings", data={"token": TOKEN, "pool_size": "4"})
+        self.assertIsNotNone(store.latest_run())
+
+    def test_a_pool_size_under_two_is_refused(self) -> None:
+        self.client.post("/admin/settings", data={"token": TOKEN, "pool_size": "1"})
+        self.assertEqual(store.get_settings()["pool_size"], 10)
+
+    def test_leftovers_alone_do_not_start_another_round(self) -> None:
+        # Two users who cannot be matched to each other stay waiting. Without
+        # the guard the run would keep starting itself forever.
+        store.set_settings({"pool_size": 2})
+        seed_store(count=2, seed=5)
+        for doc in store.list_users():
+            store.update_user(str(doc["id"]), {"mode": "friendship"})
+        store.update_user(str(store.list_users()[0]["id"]), {"mode": "date"})
+        matchflow.run_now(store)
+        self.assertEqual(store.count_waiting(), 2)
+        # One run only: a second would have been started by the re-check.
+        self.assertEqual(len(store.list_matches()), 0)
+
+    def test_a_round_left_half_done_is_swept_up(self) -> None:
+        seed_store(count=3, seed=6)
+        store.claim_waiting()
+        self.assertEqual(store.count_waiting(), 0)
+        matchflow.run_now(store)
+        # Everyone was picked back up rather than being stranded.
+        self.assertEqual(
+            sum(1 for d in store.list_users() if d["status"] == "matching"), 0
+        )
+
+    def test_every_faculty_has_somewhere_to_meet(self) -> None:
+        self.assertEqual(set(matchflow.MEETING_PLACES), set(vocabulary.FACULTIES))
+
+    def test_a_cross_faculty_pair_meets_at_the_default(self) -> None:
+        self.assertEqual(
+            matchflow.place_for("Faculty of Science", "Business School"),
+            matchflow.DEFAULT_PLACE,
+        )
+        self.assertEqual(
+            matchflow.place_for("Faculty of Science", "Faculty of Science"),
+            matchflow.MEETING_PLACES["Faculty of Science"],
+        )
+
+    def test_settings_round_trip_and_reset_to_the_default(self) -> None:
+        store.set_settings({"pool_size": 6})
+        self.assertEqual(store.get_settings()["pool_size"], 6)
+        store.reset()
+        self.assertEqual(store.get_settings()["pool_size"], 10)
+
+    def test_reset_clears_matches_too(self) -> None:
+        add_partner(PARTNER)
+        add_partner("cara@aucklanduni.ac.nz")
+        matchflow.run_now(store)
+        self.assertGreater(len(store.list_matches()), 0)
+        store.reset()
+        self.assertEqual(store.list_matches(), [])
+        self.assertIsNone(store.latest_run())
 
 
 class TestAdmin(WebTest):
@@ -317,6 +546,63 @@ class TestAdmin(WebTest):
         )))
         self.assertGreater(len(matches), 0)
         self.assertIn("a_name", matches[0])
+
+
+class TestMessagesAtOnce(unittest.TestCase):
+    """The LLM calls in a round go out together, and share one cache file."""
+
+    def test_the_breakdown_comes_without_asking_for_a_message(self) -> None:
+        result = pipeline.run_matching(data.generate_users(20, 1))
+        for entry in result["matches"]:
+            self.assertIn("breakdown", entry)
+            self.assertNotIn("message", entry)
+
+    def test_every_answer_reaches_the_cache(self) -> None:
+        """A slow model is what makes the writes overlap.
+
+        Without the lock, each worker would write back the copy of the file
+        it read before its own call, and the last one would win.
+        """
+        import json
+        import tempfile
+        import time
+        from pathlib import Path
+
+        users = [
+            make_pair_user("a@x.nz"), make_pair_user("b@x.nz"),
+            make_pair_user("c@x.nz"), make_pair_user("d@x.nz"),
+        ]
+
+        def slow_answer(a, b, score, mode, breakdown):
+            time.sleep(0.05)
+            return f"{a.id} and {b.id} were matched on interests. Say hi!"
+
+        with tempfile.TemporaryDirectory() as folder:
+            cache = Path(folder) / "llm.json"
+            with unittest.mock.patch.object(llm, "_ask_the_model", slow_answer):
+                result = pipeline.run_matching(users, explain=True, cache=cache)
+
+            pairs = len(result["matches"])
+            self.assertGreater(pairs, 1)
+            self.assertEqual(len(json.loads(cache.read_text())), pairs)
+
+
+def make_pair_user(uid: str) -> User:
+    """A user who suits every other user this helper makes."""
+    return User(
+        id=uid,
+        major="Computer Science",
+        faculty="Faculty of Science",
+        year=2,
+        age=21,
+        mbti="INFJ",
+        languages=frozenset({"Korean"}),
+        gender="Female",
+        area="Central",
+        interests=frozenset({"Coding", "Hiking"}),
+        mode="friendship",
+        preferences={},
+    )
 
 
 class TestPipelineSeam(unittest.TestCase):

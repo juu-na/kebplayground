@@ -7,12 +7,27 @@
 
 <div class="card">
   <h2>Signups</h2>
-  <p>{{ total }} in total</p>
+  <p>{{ total }} in total, {{ waiting_count }} waiting</p>
   <ul>
     {% for mode, count in counts.items() %}
     <li>{{ mode }}: {{ count }}</li>
     {% endfor %}
   </ul>
+  <ul>
+    {% for status, count in statuses.items() %}
+    <li>{{ status }}: {{ count }}</li>
+    {% endfor %}
+  </ul>
+</div>
+
+<div class="card">
+  <h2>Pool size</h2>
+  <p>A round starts on its own once {{ pool_size }} people are waiting.</p>
+  <form method="post" action="/admin/settings" class="actions">
+    <input type="hidden" name="token" value="{{ token }}">
+    <input name="pool_size" type="number" value="{{ pool_size }}" min="2" max="200">
+    <button type="submit">Save</button>
+  </form>
 </div>
 
 <div class="card">

@@ -191,9 +191,17 @@ YEARS = frozenset({1, 2, 3, 4, 5, 6})
 # of weights, so the two lists have to agree.
 MODES = frozenset({"friendship", "date"})
 
-# Where a user is up to. Only the waiting ones take part in a run. The rest
-# are here so that Phase 2 has somewhere to put them.
-STATUSES = frozenset({"waiting", "offered", "accepted", "declined", "met"})
+# Where a user is up to. Only the waiting ones take part in a run.
+#
+# waiting  in the pool
+# matching claimed by a run that is going right now
+# offered  has a match to answer
+# paused   stepped out until they resume, only reachable from waiting
+# accepted took their match, and is done
+#
+# Turning a match down is recorded on the match, not on the person, who goes
+# straight back to waiting. So there is no declined status here.
+STATUSES = frozenset({"waiting", "matching", "offered", "accepted", "paused"})
 
 
 def faculty_of(major: str) -> str:

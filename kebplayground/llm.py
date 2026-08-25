@@ -12,6 +12,7 @@ import json
 import os
 import re
 import sys
+import threading
 from pathlib import Path
 
 from .models import User
@@ -23,6 +24,11 @@ MODEL = "gemini-3.6-flash"
 API_KEY = "GEMINI_API_KEY"
 
 _already_said: set[str] = set()
+
+# Guards the cache file. A run asks for several messages at once, and the
+# cache is read and written whole, so two writers would drop each other's
+# answers.
+_cache_lock = threading.Lock()
 
 
 def _say_once(note: str) -> None:
@@ -158,12 +164,14 @@ def explain(
     """
     key = "|".join(sorted((a.id, b.id)))
 
-    saved: dict[str, str] = {}
-    if cache is not None and cache.exists():
-        saved = json.loads(cache.read_text())
+    if cache is not None:
+        with _cache_lock:
+            saved = _read_cache(cache)
         if key in saved:
             return saved[key]
 
+    # Asked for outside the lock. This is the slow part, and holding the lock
+    # across it would put the pairs back into single file.
     message = _ask_the_model(a, b, score, mode, breakdown)
     if message is None:
         # Nothing is cached here. A plain message is what gets written when
@@ -172,13 +180,33 @@ def explain(
         return plain_message(breakdown)
 
     if cache is not None:
-        # The cache lives in its own directory, which is not there on a first
-        # run. Without this the first answer worth keeping ends the run.
-        cache.parent.mkdir(parents=True, exist_ok=True)
-        saved[key] = message
-        cache.write_text(json.dumps(saved, indent=2))
+        with _cache_lock:
+            # Read again rather than reusing what was read above. Another
+            # pair may have written its own answer while this one was being
+            # asked for, and that answer has to survive.
+            saved = _read_cache(cache)
+            saved[key] = message
+            # The cache lives in its own directory, which is not there on a
+            # first run. Without this the first answer worth keeping ends
+            # the run.
+            cache.parent.mkdir(parents=True, exist_ok=True)
+            cache.write_text(json.dumps(saved, indent=2))
 
     return message
+
+
+def _read_cache(cache: Path) -> dict[str, str]:
+    """Read the saved answers, treating an unreadable file as empty.
+
+    A run cut off part way through a write leaves a half written file. That
+    is a reason to ask the model again, not to end the run.
+    """
+    if not cache.exists():
+        return {}
+    try:
+        return json.loads(cache.read_text())
+    except (json.JSONDecodeError, OSError):
+        return {}
 
 
 def _ask_the_model(

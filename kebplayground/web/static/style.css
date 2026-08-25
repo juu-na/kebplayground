@@ -146,3 +146,19 @@ button.danger { background: var(--danger); }
 .match-message { font-size: 1.05rem; }
 .match-contact { margin-top: 1rem; }
 .match-score { color: var(--muted); font-size: 0.85rem; }
+
+button.quiet {
+  background: transparent;
+  color: var(--muted);
+  border: 1px solid var(--line);
+}
+
+.profile { margin: 0; }
+.profile dt {
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  margin-top: 0.75rem;
+}
+.profile dd { margin: 0.1rem 0 0; }

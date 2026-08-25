@@ -1,7 +1,41 @@
-{% if has_run %}
-<h1>Not matched this round</h1>
-<p>You are in the pool for the next round. This page checks on its own, so keep it open.</p>
+{# The one block both the home page and its ten second poll render. #}
+{% if status == "offered" and match %}
+  <p class="eyebrow">{{ match.mode }}</p>
+  <h2>You and {{ partner.name if partner else "someone" }} lined up.</h2>
+  {% if match.message %}<p class="match-message">{{ match.message }}</p>{% endif %}
+  <p class="match-score">match score {{ '%.0f' % (match.score * 100) }}%</p>
+  <div class="actions centre">
+    <form method="post" action="/match/respond">
+      <input type="hidden" name="answer" value="accepted">
+      <button type="submit">Say yes</button>
+    </form>
+    <form method="post" action="/match/respond">
+      <input type="hidden" name="answer" value="declined">
+      <button type="submit" class="quiet">Not this one</button>
+    </form>
+  </div>
+{% elif status == "accepted" and match %}
+  <p class="eyebrow">it is on</p>
+  <h2>Meet {{ partner.name if partner else "your match" }} at {{ match.place }}.</h2>
+  {% if match.message %}<p class="match-message">{{ match.message }}</p>{% endif %}
+  <p class="match-contact">Email them at <strong>{{ partner.contact if partner else "" }}</strong></p>
+{% elif status == "matching" %}
+  <h2>Finding your match.</h2>
+  <p>A round is going right now. This page keeps itself up to date.</p>
+{% elif status == "paused" %}
+  <h2>You are sitting this one out.</h2>
+  <p>You will not be matched until you come back in.</p>
+  <form method="post" action="/resume" class="actions centre">
+    <button type="submit">Join the next round</button>
+  </form>
 {% else %}
-<h1>You are in</h1>
-<p>The matching has not run yet. This page checks on its own, so keep it open.</p>
+  <h2>You are {{ waiting_count }} of {{ pool_size }}.</h2>
+  {% if waiting_count >= pool_size %}
+  <p>The pool is full, so a round is about to start.</p>
+  {% else %}
+  <p>Matching starts once {{ pool_size }} people are waiting. This page keeps itself up to date.</p>
+  {% endif %}
+  <form method="post" action="/pause" class="actions centre">
+    <button type="submit" class="quiet">Pause my place</button>
+  </form>
 {% endif %}
