@@ -477,48 +477,48 @@ class TestRounds(WebTest):
         self.assertEqual(set(matchflow.MEETING_PLACES), set(vocabulary.FACULTIES))
 
     def test_a_faculty_meets_its_own_at_home(self) -> None:
-        self.assertEqual(
-            matchflow.place_for("Faculty of Science", "Faculty of Science"),
-            matchflow.MEETING_PLACES["Faculty of Science"],
-        )
+        for faculty, home in matchflow.MEETING_PLACES.items():
+            self.assertEqual(matchflow.place_for(faculty, faculty), home)
 
-    def test_a_cross_faculty_pair_meets_in_between(self) -> None:
-        where = matchflow.PLACES
-
-        def between(a: str, b: str) -> None:
-            picked = matchflow.place_for(a, b)
-            ends = sorted(
-                (where[matchflow.MEETING_PLACES[a]], where[matchflow.MEETING_PLACES[b]])
-            )
-            self.assertGreaterEqual(where[picked], ends[0])
-            self.assertLessEqual(where[picked], ends[1])
-
+    def test_a_cross_faculty_pair_stays_on_the_city_campus(self) -> None:
         for a in matchflow.MEETING_PLACES:
             for b in matchflow.MEETING_PLACES:
                 if a != b:
-                    between(a, b)
+                    self.assertNotIn(matchflow.place_for(a, b), matchflow.OFF_CAMPUS)
 
-    def test_a_spot_belonging_to_neither_wins_a_tie(self) -> None:
-        # Engineering sits beside Hiwa, and Science one step along, so the
-        # halfway point is a tie between Leech, Hiwa and the Science Centre.
-        # Hiwa is nobody's building, so it takes it.
-        self.assertEqual(
-            matchflow.place_for(
-                "Faculty of Engineering and Design", "Faculty of Science"
-            ),
-            "Hiwa Recreation Centre",
-        )
+    def test_a_cross_faculty_pair_meets_nearest_the_halfway_point(self) -> None:
+        import math
+
+        for a in matchflow.MEETING_PLACES:
+            for b in matchflow.MEETING_PLACES:
+                if a == b:
+                    continue
+                (ax, ay) = matchflow.PLACES[matchflow.MEETING_PLACES[a]]
+                (bx, by) = matchflow.PLACES[matchflow.MEETING_PLACES[b]]
+                middle = ((ax + bx) / 2, (ay + by) / 2)
+                picked = matchflow.place_for(a, b)
+                nearest = min(
+                    math.dist(spot, middle)
+                    for name, spot in matchflow.PLACES.items()
+                    if name not in matchflow.OFF_CAMPUS
+                )
+                self.assertAlmostEqual(
+                    math.dist(matchflow.PLACES[picked], middle), nearest
+                )
 
     def test_the_places_are_the_same_whichever_way_round(self) -> None:
         for a in matchflow.MEETING_PLACES:
             for b in matchflow.MEETING_PLACES:
                 self.assertEqual(matchflow.place_for(a, b), matchflow.place_for(b, a))
 
-    def test_every_meeting_place_sits_on_the_line(self) -> None:
+    def test_every_meeting_place_sits_on_the_map(self) -> None:
         self.assertLessEqual(set(matchflow.MEETING_PLACES.values()), set(matchflow.PLACES))
         self.assertLessEqual(matchflow.NEUTRAL, set(matchflow.PLACES))
-        # Nothing neutral is also somebody's home.
+        self.assertLessEqual(matchflow.OFF_CAMPUS, set(matchflow.PLACES))
+        self.assertIn(matchflow.DEFAULT_PLACE, matchflow.PLACES)
+        # Nothing neutral is also somebody's home, or off campus.
         self.assertFalse(matchflow.NEUTRAL & set(matchflow.MEETING_PLACES.values()))
+        self.assertFalse(matchflow.NEUTRAL & matchflow.OFF_CAMPUS)
 
     def test_settings_round_trip_and_reset_to_the_default(self) -> None:
         store.set_settings({"pool_size": 6})

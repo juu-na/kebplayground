@@ -8,6 +8,7 @@ Only one round runs at a time, which run_lock enforces. The service runs as
 a single instance, so a lock in the process is enough.
 """
 
+import math
 import os
 import threading
 from pathlib import Path
@@ -19,25 +20,28 @@ from . import db
 # second round starting while one is going is something to skip, not queue.
 run_lock = threading.Lock()
 
-# Roughly where each spot sits on a line across the campuses, running from
-# the law end through the middle of the city campus and out to Grafton. The
-# numbers only mean distance relative to each other, so that a pair from two
-# faculties can be sent somewhere between the two.
+# Where each spot sits on the city campus, read off the campus map as grid
+# coordinates. Only the distances between them mean anything, so the units
+# and which way up they are do not matter.
 PLACES = {
-    "the Davis Library": 0,
-    "the Arts Building": 2,
-    "the OGGB": 3,
-    "the General Library": 3,
-    "Kate Edger": 3,
-    "the Leech study space": 4,
-    "Hiwa Recreation Centre": 4,
-    "the Science Centre": 5,
-    "the Grafton campus": 8,
+    "the Davis Library": (5.8, 0.0),
+    "the General Library": (1.6, 5.7),
+    "the Arts Building": (5.5, 6.5),
+    "Kate Edger": (1.9, 7.8),
+    "Hiwa Recreation Centre": (1.0, 8.6),
+    "the OGGB": (4.7, 9.1),
+    "the Science Centre": (0.0, 9.9),
+    "the Leech study space": (1.7, 10.0),
+    "the Grafton campus": (2.5, 29.2),
 }
 
-# The spots that are nobody's home faculty. A pair from two faculties is
-# sent to one of these where there is a choice, so that neither of them is
-# the one made to travel to the other's building.
+# Away from the middle of the city campus. A pair from two faculties is
+# always sent somewhere on the city campus instead, however the distances
+# come out, since one of them would otherwise be walking to another campus.
+OFF_CAMPUS = frozenset({"the Davis Library", "the Grafton campus"})
+
+# The spots that are nobody's home faculty, which break a tie between two
+# that are equally close.
 NEUTRAL = frozenset({"the General Library", "Kate Edger", "Hiwa Recreation Centre"})
 
 # Where a faculty meets its own. A test checks every faculty is named here.
@@ -51,9 +55,9 @@ MEETING_PLACES = {
 }
 DEFAULT_PLACE = "the General Library"
 
-# Which spot wins a tie is decided by where it appears above, so the answer
-# is the same every time rather than depending on how a dict happens to
-# iterate.
+# Which spot wins a tie nothing else settles is decided by where it appears
+# above, so the answer is the same every time rather than depending on how a
+# dict happens to iterate.
 _ORDER = {name: index for index, name in enumerate(PLACES)}
 
 # Made up users answer their match on their own, so that a rehearsal with
@@ -64,22 +68,28 @@ SEED_MARK = "demo"
 def place_for(faculty_a: str, faculty_b: str) -> str:
     """Where to send a pair.
 
-    Two people from the same faculty meet at their own building. Otherwise
-    aim for the halfway point between the two buildings, preferring a spot
-    that belongs to neither of them when several are equally close.
+    Two people from the same faculty meet at their own building, wherever
+    that is. Otherwise take the halfway point between the two buildings and
+    pick whatever sits closest to it, keeping to the city campus.
     """
     home_a = MEETING_PLACES.get(faculty_a, DEFAULT_PLACE)
     home_b = MEETING_PLACES.get(faculty_b, DEFAULT_PLACE)
     if faculty_a == faculty_b:
         return home_a
 
-    middle = (PLACES[home_a] + PLACES[home_b]) / 2
+    (ax, ay), (bx, by) = PLACES[home_a], PLACES[home_b]
+    middle = ((ax + bx) / 2, (ay + by) / 2)
 
-    def nearness(item: tuple[str, int]) -> tuple[float, bool, int]:
-        name, where = item
-        # Closest to the middle first, then whichever belongs to nobody,
-        # then whichever was named first.
-        return (abs(where - middle), name not in NEUTRAL, _ORDER[name])
+    def nearness(item: tuple[str, tuple[float, float]]) -> tuple:
+        name, spot = item
+        # City campus first, then closest to the middle, then whichever
+        # belongs to nobody, then whichever was named first.
+        return (
+            name in OFF_CAMPUS,
+            math.dist(spot, middle),
+            name not in NEUTRAL,
+            _ORDER[name],
+        )
 
     return min(PLACES.items(), key=nearness)[0]
 
