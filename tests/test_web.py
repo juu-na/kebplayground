@@ -83,11 +83,20 @@ class WebTest(unittest.TestCase):
     """Shared client, a clean store and no real LLM or admin token."""
 
     def setUp(self) -> None:
+        import tempfile
+
         store.reset()
         self.client = TestClient(app)
+        # Its own cache. Sharing the repo's would let a real run done by hand
+        # answer for the mocked model here.
+        cache = tempfile.TemporaryDirectory()
+        self.addCleanup(cache.cleanup)
         patches = [
             unittest.mock.patch.object(llm, "_ask_the_model", return_value=None),
-            unittest.mock.patch.dict("os.environ", {"ADMIN_TOKEN": TOKEN}),
+            unittest.mock.patch.dict(
+                "os.environ",
+                {"ADMIN_TOKEN": TOKEN, "LLM_CACHE_PATH": f"{cache.name}/llm.json"},
+            ),
         ]
         for patch in patches:
             patch.start()
