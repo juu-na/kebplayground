@@ -322,20 +322,49 @@ class TestTheRound(WebTest):
         self.assertIn("How you two line up", page)
         self.assertIn("bar-fill", page)
 
-    def test_the_written_reason_is_kept_on_the_match(self) -> None:
+    def test_the_written_reason_is_kept_for_the_organiser(self) -> None:
+        # Not shown to the pair, who see the same facts as chips, but it is
+        # what an organiser reads down the matches export.
         match = self.matched_pair()
         self.assertIn("Computer Science", str(match["why"]))
-        self.assertIn(str(match["why"]), self.client.get("/").text)
+        self.assertNotIn(str(match["why"]), self.client.get("/").text)
 
-    def test_the_reason_and_the_suggestion_are_both_shown(self) -> None:
-        # Two different jobs: why they were matched is worked out in code,
-        # what to do about it comes from the model.
+    def test_the_suggestion_is_shown(self) -> None:
         match = self.matched_pair()
         page = self.client.get("/").text
-        self.assertNotEqual(match["why"], match["suggestion"])
-        self.assertIn(str(match["why"]), page)
         self.assertIn(str(match["suggestion"]), page)
         self.assertIn("Something to do", page)
+
+    def test_the_study_chip_says_the_closest_thing_they_share(self) -> None:
+        from kebplayground.web.app import _shared
+
+        def pair(major_a: str, major_b: str) -> object:
+            add_partner("x@aucklanduni.ac.nz", major=major_a,
+                        faculty=vocabulary.faculty_of(major_a))
+            add_partner("y@aucklanduni.ac.nz", major=major_b,
+                        faculty=vocabulary.faculty_of(major_b))
+            return _shared(
+                store.get_user("x@aucklanduni.ac.nz"),
+                store.get_user("y@aucklanduni.ac.nz"),
+            )["study"]
+
+        self.assertEqual(pair("Computer Science", "Computer Science"), "Computer Science")
+        # Same department beats the faculty they are both in.
+        self.assertEqual(
+            pair("Software Engineering", "Computer Systems Engineering"),
+            vocabulary.department_of("Software Engineering"),
+        )
+        # No department in common, so the faculty is the closest thing left.
+        self.assertEqual(pair("Chemistry", "Physics"), "Faculty of Science")
+        self.assertIsNone(pair("Computer Science", "Law"))
+
+    def test_a_shared_subject_is_shown_as_a_chip(self) -> None:
+        # The chips carry the facts, so the written reason does not have to
+        # be repeated above them.
+        self.matched_pair()
+        page = self.client.get("/").text
+        self.assertIn("You both study", page)
+        self.assertIn("Computer Science", page)
 
     def test_a_measurement_of_zero_is_left_off_the_bars(self) -> None:
         from kebplayground.web.app import _bars

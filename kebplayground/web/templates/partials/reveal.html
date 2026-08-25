@@ -1,7 +1,5 @@
 {# The card both the offer and the acceptance show: what the two have in
    common, and how each measurement scored. #}
-{% if match.why %}<p class="match-why">{{ match.why }}</p>{% endif %}
-
 {% if match.suggestion %}
 <div class="suggestion">
   <p class="eyebrow">Something to do</p>
@@ -9,8 +7,12 @@
 </div>
 {% endif %}
 
-{% if shared.interests or shared.languages %}
+{% if shared.study or shared.interests or shared.languages %}
 <div class="shared">
+  {% if shared.study %}
+  <p class="eyebrow">You both study</p>
+  <div class="choices"><span class="chip">{{ shared.study }}</span></div>
+  {% endif %}
   {% if shared.interests %}
   <p class="eyebrow">You both like</p>
   <div class="choices">

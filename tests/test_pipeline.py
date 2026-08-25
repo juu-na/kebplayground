@@ -918,6 +918,13 @@ class TestMatcher(unittest.TestCase):
         self.assertFalse(llm.verify("Go for drinks at the pub on Symonds Street."))
         self.assertFalse(llm.verify("Head back to your flat and watch a film."))
 
+    def test_a_suggestion_going_on_about_the_price_is_turned_down(self):
+        # Saying it is cheap makes the pair sound broke. The rules ask for
+        # things that cost little without narrating what they cost.
+        self.assertFalse(llm.verify("Grab a cheap coffee and walk through the park."))
+        self.assertFalse(llm.verify("A budget friendly stroll round the gallery."))
+        self.assertTrue(llm.verify("Grab a coffee and walk through Albert Park."))
+
     def test_a_word_holding_another_word_inside_it_is_not_a_mention(self):
         # barista holds bar, and homework holds home. Matching on the bare
         # letters turned both of these down.

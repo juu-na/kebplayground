@@ -81,7 +81,11 @@ their languages, their personalities and how old they are.
 
 Rules:
 - Somewhere public, on or near the city campus. Never a private home.
-- Free, or under about ten dollars each. No alcohol.
+- Pick things that cost little by their nature, such as a walk, a coffee, a
+  look round a gallery. Never mention money, prices, or how cheap something
+  is, and never call anything cheap, budget or affordable. Say what it is,
+  not what it costs.
+- No alcohol.
 - Nothing needing a booking, a membership, or gear they may not own.
 - Suitable for two strangers meeting in daylight.
 - Match the connection they asked for. Never suggest anything romantic to
@@ -98,6 +102,11 @@ UNSAFE_WORDS = (
     "alcohol", "bar", "beer", "cocktail", "drinks", "pub", "wine",
     "apartment", "flat", "home", "hotel", "my place", "your place",
 )
+
+# Words that make the suggestion read as though the two of them are short of
+# money. Turned down for the same reason as the rest: the rules said not to,
+# and a reply that ignores them gets thrown away.
+PENNY_PINCHING = ("affordable", "bargain", "budget", "cheap", "broke", "inexpensive")
 
 
 def describe(user: User) -> str:
@@ -342,7 +351,8 @@ def verify(suggestion: str) -> bool:
     """Check what the model wrote, before anyone sees it.
 
     Turns down an empty answer, one past the length limit, and one naming
-    something the rules ruled out, such as a drink or somebody's flat.
+    something the rules ruled out, such as a drink, somebody's flat, or how
+    little the whole thing costs.
 
     This cannot tell whether a suggestion is a good idea, only whether it
     broke a rule in a way that shows up in the words. Anything turned down
@@ -355,4 +365,6 @@ def verify(suggestion: str) -> bool:
         return False
 
     lowered = suggestion.lower()
-    return not any(_mentions(lowered, word) for word in UNSAFE_WORDS)
+    return not any(
+        _mentions(lowered, word) for word in UNSAFE_WORDS + PENNY_PINCHING
+    )

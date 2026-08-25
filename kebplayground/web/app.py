@@ -189,11 +189,26 @@ def _bars(breakdown: dict[str, float]) -> list[dict[str, object]]:
     return sorted(scored, key=lambda bar: bar["percent"], reverse=True)
 
 
-def _shared(doc: dict[str, object], partner: dict[str, object]) -> dict[str, list[str]]:
-    """What the two have in common, for the chips under the card."""
+def _shared(doc: dict[str, object], partner: dict[str, object]) -> dict[str, object]:
+    """What the two have in common, for the chips under the card.
+
+    The study line is the closest thing they share and no more: the same
+    major beats the same department, which beats the same faculty.
+    """
     mine = db.doc_to_user(doc)
     theirs = db.doc_to_user(partner)
+
+    study = None
+    department = vocabulary.department_of(mine.major)
+    if mine.major == theirs.major:
+        study = mine.major
+    elif department is not None and department == vocabulary.department_of(theirs.major):
+        study = department
+    elif mine.faculty == theirs.faculty:
+        study = mine.faculty
+
     return {
+        "study": study,
         "interests": sorted(mine.interests & theirs.interests),
         "languages": sorted(mine.languages & theirs.languages),
     }
@@ -651,9 +666,15 @@ def export_matches(token: str = ""):
     _check_token(token)
     out = io.StringIO()
     writer = csv.DictWriter(
-        out, fieldnames=["a", "a_name", "b", "b_name", "mode", "score", "suggestion"]
+        out, fieldnames=["a", "a_name", "b", "b_name", "mode", "score", "why", "suggestion"]
     )
     writer.writeheader()
+    # The reason for a pair is written down on the match rather than in the
+    # run, so look it up by the pair.
+    reasons = {
+        (str(match["a"]), str(match["b"])): str(match.get("why") or "")
+        for match in store.list_matches()
+    }
     run = store.latest_run()
     if run is not None:
         for entry in run["result"]["matches"]:  # type: ignore[index]
@@ -667,6 +688,7 @@ def export_matches(token: str = ""):
                     "b_name": b.get("name", ""),
                     "mode": entry["mode"],
                     "score": entry["score"],
+                    "why": reasons.get((str(entry["a"]), str(entry["b"])), ""),
                     "suggestion": entry.get("suggestion", ""),
                 }
             )
