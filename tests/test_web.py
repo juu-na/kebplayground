@@ -275,7 +275,7 @@ class TestTheRound(WebTest):
         matches = store.list_matches()
         self.assertGreater(len(matches), 0)
         match = matches[0]
-        self.assertIn(match["place"], set(matchflow.MEETING_PLACES.values()))
+        self.assertIn(match["place"], set(matchflow.PLACES))
         # Seeded users answer on their own, so the pair is already settled.
         self.assertEqual(match["state"], "accepted")
         for uid in (match["a"], match["b"]):
@@ -476,15 +476,49 @@ class TestRounds(WebTest):
     def test_every_faculty_has_somewhere_to_meet(self) -> None:
         self.assertEqual(set(matchflow.MEETING_PLACES), set(vocabulary.FACULTIES))
 
-    def test_a_cross_faculty_pair_meets_at_the_default(self) -> None:
-        self.assertEqual(
-            matchflow.place_for("Faculty of Science", "Business School"),
-            matchflow.DEFAULT_PLACE,
-        )
+    def test_a_faculty_meets_its_own_at_home(self) -> None:
         self.assertEqual(
             matchflow.place_for("Faculty of Science", "Faculty of Science"),
             matchflow.MEETING_PLACES["Faculty of Science"],
         )
+
+    def test_a_cross_faculty_pair_meets_in_between(self) -> None:
+        where = matchflow.PLACES
+
+        def between(a: str, b: str) -> None:
+            picked = matchflow.place_for(a, b)
+            ends = sorted(
+                (where[matchflow.MEETING_PLACES[a]], where[matchflow.MEETING_PLACES[b]])
+            )
+            self.assertGreaterEqual(where[picked], ends[0])
+            self.assertLessEqual(where[picked], ends[1])
+
+        for a in matchflow.MEETING_PLACES:
+            for b in matchflow.MEETING_PLACES:
+                if a != b:
+                    between(a, b)
+
+    def test_a_spot_belonging_to_neither_wins_a_tie(self) -> None:
+        # Engineering sits beside Hiwa, and Science one step along, so the
+        # halfway point is a tie between Leech, Hiwa and the Science Centre.
+        # Hiwa is nobody's building, so it takes it.
+        self.assertEqual(
+            matchflow.place_for(
+                "Faculty of Engineering and Design", "Faculty of Science"
+            ),
+            "Hiwa Recreation Centre",
+        )
+
+    def test_the_places_are_the_same_whichever_way_round(self) -> None:
+        for a in matchflow.MEETING_PLACES:
+            for b in matchflow.MEETING_PLACES:
+                self.assertEqual(matchflow.place_for(a, b), matchflow.place_for(b, a))
+
+    def test_every_meeting_place_sits_on_the_line(self) -> None:
+        self.assertLessEqual(set(matchflow.MEETING_PLACES.values()), set(matchflow.PLACES))
+        self.assertLessEqual(matchflow.NEUTRAL, set(matchflow.PLACES))
+        # Nothing neutral is also somebody's home.
+        self.assertFalse(matchflow.NEUTRAL & set(matchflow.MEETING_PLACES.values()))
 
     def test_settings_round_trip_and_reset_to_the_default(self) -> None:
         store.set_settings({"pool_size": 6})

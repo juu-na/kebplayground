@@ -19,18 +19,42 @@ from . import db
 # second round starting while one is going is something to skip, not queue.
 run_lock = threading.Lock()
 
-# Where a pair is told to meet. Same faculty sends them to their own
-# building; anywhere else meets at the landmark both sides know. A test
-# checks every faculty is named here.
+# Roughly where each spot sits on a line across the campuses, running from
+# the law end through the middle of the city campus and out to Grafton. The
+# numbers only mean distance relative to each other, so that a pair from two
+# faculties can be sent somewhere between the two.
+PLACES = {
+    "the Davis Library": 0,
+    "the Arts Building": 2,
+    "the OGGB": 3,
+    "the General Library": 3,
+    "Kate Edger": 3,
+    "the Leech study space": 4,
+    "Hiwa Recreation Centre": 4,
+    "the Science Centre": 5,
+    "the Grafton campus": 8,
+}
+
+# The spots that are nobody's home faculty. A pair from two faculties is
+# sent to one of these where there is a choice, so that neither of them is
+# the one made to travel to the other's building.
+NEUTRAL = frozenset({"the General Library", "Kate Edger", "Hiwa Recreation Centre"})
+
+# Where a faculty meets its own. A test checks every faculty is named here.
 MEETING_PLACES = {
-    "Faculty of Engineering and Design": "the Leech Building",
-    "Business School": "the OGGB",
-    "Auckland Law School": "the OGGB",
-    "Faculty of Science": "the Science Centre",
+    "Auckland Law School": "the Davis Library",
     "Faculty of Arts and Education": "the Arts Building",
-    "Faculty of Medical and Health Sciences": "the General Library",
+    "Business School": "the OGGB",
+    "Faculty of Engineering and Design": "the Leech study space",
+    "Faculty of Science": "the Science Centre",
+    "Faculty of Medical and Health Sciences": "the Grafton campus",
 }
 DEFAULT_PLACE = "the General Library"
+
+# Which spot wins a tie is decided by where it appears above, so the answer
+# is the same every time rather than depending on how a dict happens to
+# iterate.
+_ORDER = {name: index for index, name in enumerate(PLACES)}
 
 # Made up users answer their match on their own, so that a rehearsal with
 # nobody else around still reaches the page that says where to meet.
@@ -38,9 +62,26 @@ SEED_MARK = "demo"
 
 
 def place_for(faculty_a: str, faculty_b: str) -> str:
+    """Where to send a pair.
+
+    Two people from the same faculty meet at their own building. Otherwise
+    aim for the halfway point between the two buildings, preferring a spot
+    that belongs to neither of them when several are equally close.
+    """
+    home_a = MEETING_PLACES.get(faculty_a, DEFAULT_PLACE)
+    home_b = MEETING_PLACES.get(faculty_b, DEFAULT_PLACE)
     if faculty_a == faculty_b:
-        return MEETING_PLACES.get(faculty_a, DEFAULT_PLACE)
-    return DEFAULT_PLACE
+        return home_a
+
+    middle = (PLACES[home_a] + PLACES[home_b]) / 2
+
+    def nearness(item: tuple[str, int]) -> tuple[float, bool, int]:
+        name, where = item
+        # Closest to the middle first, then whichever belongs to nobody,
+        # then whichever was named first.
+        return (abs(where - middle), name not in NEUTRAL, _ORDER[name])
+
+    return min(PLACES.items(), key=nearness)[0]
 
 
 def pool_size(store) -> int:
