@@ -511,20 +511,41 @@ class TestRounds(WebTest):
                 else:
                     self.assertAlmostEqual(away[picked], closest)
 
-    def test_neutral_ground_beats_one_of_their_own_buildings(self) -> None:
-        # The Arts Building and the OGGB are both nearer the halfway point,
-        # but Kate Edger belongs to neither of them and is close enough.
+    def test_neutral_ground_beats_a_building_worth_walking_past(self) -> None:
+        # Kate Edger belongs to neither, and is close enough to the halfway
+        # point to be worth it.
         self.assertEqual(
-            matchflow.place_for("Faculty of Arts and Education", "Business School"),
+            matchflow.place_for(
+                "Faculty of Arts and Education", "Faculty of Engineering and Design"
+            ),
             "Kate Edger",
         )
 
-    def test_nobody_is_sent_to_the_other_faculty_s_building(self) -> None:
-        homes = set(matchflow.MEETING_PLACES.values())
+    def test_a_faculty_building_still_wins_when_neutral_is_a_walk(self) -> None:
+        # Neutral ground does not win at any price. Nothing belonging to
+        # nobody is near enough to the halfway point here.
+        self.assertNotIn(
+            matchflow.place_for("Faculty of Arts and Education", "Business School"),
+            matchflow.NEUTRAL,
+        )
+
+    def test_leech_is_never_where_a_cross_faculty_pair_meets(self) -> None:
+        """Only engineering knows where it is."""
+        leech = matchflow.MEETING_PLACES["Faculty of Engineering and Design"]
         for a in matchflow.MEETING_PLACES:
             for b in matchflow.MEETING_PLACES:
                 if a != b:
-                    self.assertNotIn(matchflow.place_for(a, b), homes)
+                    self.assertNotEqual(matchflow.place_for(a, b), leech)
+
+    def test_most_cross_faculty_pairs_meet_on_neutral_ground(self) -> None:
+        pairs = [
+            matchflow.place_for(a, b)
+            for a in matchflow.MEETING_PLACES
+            for b in matchflow.MEETING_PLACES
+            if a < b
+        ]
+        neutral = [place for place in pairs if place in matchflow.NEUTRAL]
+        self.assertGreaterEqual(len(neutral), len(pairs) - 2)
 
     def test_the_places_are_the_same_whichever_way_round(self) -> None:
         for a in matchflow.MEETING_PLACES:

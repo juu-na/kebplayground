@@ -46,10 +46,13 @@ OFF_CAMPUS = frozenset({"the Davis Library", "the Grafton campus"})
 NEUTRAL = frozenset({"the General Library", "Kate Edger", "Hiwa Recreation Centre"})
 
 # How much further than the nearest spot a neutral one may be and still be
-# worth it, roughly a third of the way across the city campus. Past that the
-# walk costs more than the neutral ground is worth, and the nearest spot
-# wins even though it belongs to one of them.
-NEUTRAL_DETOUR = 2.0
+# worth it. Past that the walk costs more than the neutral ground is worth,
+# and the nearest spot wins even though it belongs to one of them.
+#
+# Tuned rather than picked: below about 1.6 the Leech study space starts
+# turning up for pairs with no reason to know where it is, and above about
+# 1.8 every pair ends up on neutral ground whatever the walk.
+NEUTRAL_DETOUR = 1.7
 
 # Where a faculty meets its own. A test checks every faculty is named here.
 MEETING_PLACES = {
