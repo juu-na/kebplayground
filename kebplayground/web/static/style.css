@@ -252,3 +252,58 @@ button.danger { background: var(--danger); color: #fff; }
 
 .admin ul { margin: 0.25rem 0; padding-left: 1.1rem; }
 .admin li { color: var(--muted); }
+
+/* --- how a pair line up --- */
+
+.match-why { margin: 0.75rem 0; }
+
+.chip {
+  display: inline-block;
+  padding: 0.35rem 0.7rem;
+  border-radius: 999px;
+  background: var(--tint);
+  color: var(--link-dark);
+  font-size: 0.9rem;
+  font-weight: 500;
+}
+
+.shared { margin: 1.1rem 0; }
+.shared .eyebrow { margin-top: 0.9rem; }
+
+.bars {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  gap: 0.45rem 0.75rem;
+  margin: 0.35rem 0 0;
+}
+.bars dt {
+  font-size: 0.85rem;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.bars dd {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0;
+}
+.bar {
+  flex: 1;
+  height: 10px;
+  border-radius: 6px;
+  background: var(--tint);
+  overflow: hidden;
+}
+.bar-fill {
+  display: block;
+  height: 100%;
+  border-radius: 6px;
+  background: var(--lilac);
+}
+.bar-figure {
+  font-size: 0.8rem;
+  color: var(--faint);
+  min-width: 2.5rem;
+  text-align: right;
+}

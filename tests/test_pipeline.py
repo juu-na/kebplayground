@@ -960,12 +960,12 @@ class TestMatcher(unittest.TestCase):
     def test_the_plain_message_copes_with_nothing_in_common(self):
         self.assertTrue(llm.plain_message({"interests": 0.0}).strip())
 
-    def test_no_api_key_gives_the_plain_message_rather_than_raising(self):
+    def test_no_api_key_gives_a_written_message_rather_than_raising(self):
         # A missing key is the normal state for anyone who has not set one
         # up, and it must not stop a run.
         with unittest.mock.patch.object(llm, "_api_key", return_value=None):
             message = llm.explain(ALICE, BOB, 0.7, "friendship", {"major": 1.0})
-        self.assertEqual(message, llm.plain_message({"major": 1.0}))
+        self.assertEqual(message, llm.why(ALICE, BOB, {"major": 1.0}))
 
     def test_an_answer_is_kept_and_read_back(self):
         saved = "You both study CS and share a free hour on Monday."

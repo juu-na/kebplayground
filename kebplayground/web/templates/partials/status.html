@@ -3,7 +3,7 @@
   <p class="eyebrow">{{ match.mode }}</p>
   <h2>You and {{ partner.name if partner else "someone" }} lined up.</h2>
   {% if match.message %}<p class="match-message">{{ match.message }}</p>{% endif %}
-  <p class="match-score">match score {{ '%.0f' % (match.score * 100) }}%</p>
+  {% include "partials/reveal.html" %}
   <div class="actions centre">
     <form method="post" action="/match/respond">
       <input type="hidden" name="answer" value="accepted">
@@ -17,8 +17,9 @@
 {% elif status == "accepted" and match %}
   <p class="eyebrow">it is on</p>
   <h2>Meet {{ partner.name if partner else "your match" }} at {{ match.place }}.</h2>
-  {% if match.message %}<p class="match-message">{{ match.message }}</p>{% endif %}
   <p class="match-contact">Email them at <strong>{{ partner.contact if partner else "" }}</strong></p>
+  {% if match.message %}<p class="match-message">{{ match.message }}</p>{% endif %}
+  {% include "partials/reveal.html" %}
 {% elif status == "matching" %}
   <h2>Finding your match.</h2>
   <p>A round is going right now. This page keeps itself up to date.</p>

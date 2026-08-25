@@ -13,7 +13,7 @@ import os
 import threading
 from pathlib import Path
 
-from .. import pipeline
+from .. import llm, pipeline
 from . import db
 
 # Held for the whole of a round. Taken without blocking everywhere, since a
@@ -144,6 +144,7 @@ def run_now(store) -> bool:
         result = pipeline.run_matching(users, explain=True, cache=cache)
 
         by_id = {str(doc["id"]): doc for doc in claimed}
+        by_user = {user.id: user for user in users}
         matched: set[str] = set()
 
         for entry in result["matches"]:  # type: ignore[index]
@@ -154,6 +155,9 @@ def run_now(store) -> bool:
                 score=float(entry["score"]),  # type: ignore[arg-type]
                 mode=str(entry["mode"]),
                 message=str(entry.get("message") or ""),
+                why=llm.why(
+                    by_user[a], by_user[b], entry.get("breakdown") or {}  # type: ignore[arg-type]
+                ),
                 breakdown=entry.get("breakdown") or {},  # type: ignore[arg-type]
                 place=place_for(
                     str(by_id[a]["faculty"]), str(by_id[b]["faculty"])

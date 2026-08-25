@@ -15,6 +15,7 @@ import sys
 import threading
 from pathlib import Path
 
+from . import vocabulary
 from .models import User
 
 MODEL = "gemini-3.6-flash"
@@ -174,10 +175,10 @@ def explain(
     # across it would put the pairs back into single file.
     message = _ask_the_model(a, b, score, mode, breakdown)
     if message is None:
-        # Nothing is cached here. A plain message is what gets written when
-        # the model could not be reached, and caching it would keep handing
-        # it back on later runs that could have asked properly.
-        return plain_message(breakdown)
+        # Nothing is cached here. This is what gets written when the model
+        # could not be reached, and caching it would keep handing it back on
+        # later runs that could have asked properly.
+        return why(a, b, breakdown)
 
     if cache is not None:
         with _cache_lock:
@@ -249,7 +250,7 @@ def _ask_the_model(
 
 
 def plain_message(breakdown: dict[str, float]) -> str:
-    """The message shown when the model was not used.
+    """The message shown when nothing more concrete can be said.
 
     Built out of the measurements alone, so it names nothing that was not
     measured.
@@ -259,6 +260,48 @@ def plain_message(breakdown: dict[str, float]) -> str:
     if top_names:
         return f"You two were matched on {' and '.join(top_names)}. Say hi!"
     return "You two were matched. Say hi and see what you have in common."
+
+
+def why(a: User, b: User, breakdown: dict[str, float]) -> str:
+    """Say what the pair actually have in common, without asking the model.
+
+    Reads the same two users the model would have been told about, so it can
+    name the shared major, interests and languages rather than only the
+    measurement that scored highest. Used when the model cannot be reached.
+    """
+    reasons = []
+
+    department = vocabulary.department_of(a.major)
+    if a.major == b.major:
+        reasons.append(f"you both study {a.major}")
+    elif department is not None and department == vocabulary.department_of(b.major):
+        reasons.append(f"you are both in {department}")
+    elif a.faculty == b.faculty:
+        reasons.append(f"you are both in the {a.faculty}")
+
+    shared_interests = sorted(a.interests & b.interests)
+    if shared_interests:
+        reasons.append(f"you share {_listed(shared_interests)}")
+
+    shared_languages = sorted(a.languages & b.languages)
+    if shared_languages:
+        reasons.append(f"you both speak {_listed(shared_languages)}")
+
+    if breakdown.get("mbti", 0.0) >= 0.8:
+        reasons.append(f"{a.mbti} and {b.mbti} get on")
+
+    if not reasons:
+        return plain_message(breakdown)
+
+    said = _listed(reasons[:3])
+    return said[0].upper() + said[1:] + ". Say hi!"
+
+
+def _listed(things: list[str]) -> str:
+    """Join for reading: "a", "a and b", "a, b and c"."""
+    if len(things) == 1:
+        return things[0]
+    return ", ".join(things[:-1]) + " and " + things[-1]
 
 
 # The longest message worth showing. The system prompt asks for the same

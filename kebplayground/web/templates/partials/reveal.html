@@ -1,0 +1,37 @@
+{# The card both the offer and the acceptance show: what the two have in
+   common, and how each measurement scored. #}
+{# When the model could not be reached the message is this same sentence,
+   so only show it when it says something the message does not. #}
+{% if match.why and match.why != match.message %}
+<p class="match-why">{{ match.why }}</p>
+{% endif %}
+
+{% if shared.interests or shared.languages %}
+<div class="shared">
+  {% if shared.interests %}
+  <p class="eyebrow">You both like</p>
+  <div class="choices">
+    {% for interest in shared.interests %}<span class="chip">{{ interest }}</span>{% endfor %}
+  </div>
+  {% endif %}
+  {% if shared.languages %}
+  <p class="eyebrow">You both speak</p>
+  <div class="choices">
+    {% for language in shared.languages %}<span class="chip">{{ language }}</span>{% endfor %}
+  </div>
+  {% endif %}
+</div>
+{% endif %}
+
+{% if bars %}
+<p class="eyebrow">How you two line up</p>
+<dl class="bars">
+  {% for bar in bars %}
+  <dt>{{ bar.label }}</dt>
+  <dd>
+    <span class="bar"><span class="bar-fill" style="width: {{ bar.percent }}%"></span></span>
+    <span class="bar-figure">{{ bar.percent }}%</span>
+  </dd>
+  {% endfor %}
+</dl>
+{% endif %}

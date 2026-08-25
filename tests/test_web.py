@@ -302,6 +302,50 @@ class TestTheRound(WebTest):
         self.assertIn("Say yes", page.text)
         self.assertIn("Not this one", page.text)
 
+    def test_the_reveal_shows_the_bars_and_what_is_shared(self) -> None:
+        self.matched_pair()
+        page = self.client.get("/").text
+        # Ana and Ben share Computer Science, Coding and Korean.
+        self.assertIn("You both like", page)
+        self.assertIn("Coding", page)
+        self.assertIn("You both speak", page)
+        self.assertIn("Korean", page)
+        self.assertIn("How you two line up", page)
+        self.assertIn("bar-fill", page)
+
+    def test_the_written_reason_is_kept_on_the_match(self) -> None:
+        match = self.matched_pair()
+        self.assertIn("Computer Science", str(match["why"]))
+        self.assertIn(str(match["why"]), self.client.get("/").text)
+
+    def test_the_reason_is_not_said_twice(self) -> None:
+        # With no model the message is the written reason, so the page must
+        # not print the same sentence under it.
+        match = self.matched_pair()
+        page = self.client.get("/").text
+        self.assertEqual(match["message"], match["why"])
+        self.assertEqual(page.count(str(match["why"])), 1)
+
+    def test_a_measurement_of_zero_is_left_off_the_bars(self) -> None:
+        from kebplayground.web.app import _bars
+
+        drawn = _bars({"interests": 0.0, "major": 0.5})
+        self.assertEqual([bar["label"] for bar in drawn], ["Study"])
+
+    def test_the_bars_read_strongest_first(self) -> None:
+        from kebplayground.web.app import _bars
+
+        drawn = _bars({"age": 0.2, "interests": 0.9, "mbti": 0.5})
+        self.assertEqual(
+            [bar["label"] for bar in drawn], ["Interests", "Personality", "Age"]
+        )
+
+    def test_every_measurement_has_a_label(self) -> None:
+        from kebplayground import features
+        from kebplayground.web.app import FEATURE_LABELS
+
+        self.assertEqual(set(FEATURE_LABELS), set(features.FEATURES))
+
     def test_both_accepting_says_where_to_meet(self) -> None:
         match = self.matched_pair()
         other = match["b"] if match["a"] == EMAIL else match["a"]

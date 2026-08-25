@@ -165,6 +165,40 @@ def home(request: Request, error: str = "", notice: str = ""):
     return render(request, "home.html", notice=notice, **_home_context(doc))
 
 
+# What each measurement is called on the page, and the order they read in.
+# Anything the pipeline measures but that is not named here is left off
+# rather than shown by its internal name.
+FEATURE_LABELS = {
+    "interests": "Interests",
+    "major": "Study",
+    "languages": "Languages",
+    "mbti": "Personality",
+    "age": "Age",
+    "year": "Year",
+    "area": "Part of town",
+}
+
+
+def _bars(breakdown: dict[str, float]) -> list[dict[str, object]]:
+    """The measurements worth drawing, strongest first."""
+    scored = [
+        {"label": FEATURE_LABELS[name], "percent": round(value * 100)}
+        for name, value in breakdown.items()
+        if name in FEATURE_LABELS and value > 0
+    ]
+    return sorted(scored, key=lambda bar: bar["percent"], reverse=True)
+
+
+def _shared(doc: dict[str, object], partner: dict[str, object]) -> dict[str, list[str]]:
+    """What the two have in common, for the chips under the card."""
+    mine = db.doc_to_user(doc)
+    theirs = db.doc_to_user(partner)
+    return {
+        "interests": sorted(mine.interests & theirs.interests),
+        "languages": sorted(mine.languages & theirs.languages),
+    }
+
+
 def _home_context(doc: dict[str, object]) -> dict[str, object]:
     """Everything both the home page and its polled fragment need."""
     status = str(doc.get("status") or "waiting")
@@ -181,6 +215,8 @@ def _home_context(doc: dict[str, object]) -> dict[str, object]:
         "status": status,
         "match": match,
         "partner": partner,
+        "bars": _bars(match["breakdown"]) if match else [],  # type: ignore[arg-type]
+        "shared": _shared(doc, partner) if match and partner else {},
         "waiting_count": store.count_waiting(),
         "pool_size": matchflow.pool_size(store),
     }
